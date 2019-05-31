@@ -1,0 +1,9 @@
+[submodule "yojimbo"]
+	path = yojimbo
+	url = https://github.com/networkprotocol/yojimbo.git
+[submodule "netcode.io.net"]
+	path = netcode.io.net
+	url = https://github.com/netcode-io/netcode.io.net.git
+[submodule "reliable.io.net"]
+	path = reliable.io.net
+	url = https://github.com/netcode-io/reliable.io.net.git

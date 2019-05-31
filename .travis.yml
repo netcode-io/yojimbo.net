@@ -1,0 +1,19 @@
+sudo: required
+
+dist: trusty
+
+language: csharp
+mono: none
+dotnet: 2.1.502
+
+install:
+  - wget https://github.com/premake/premake-core/releases/download/v5.0.0-alpha14/premake-5.0.0-alpha14-linux.tar.gz -O /tmp/premake5.tar.gz
+  - tar -zxvf /tmp/premake5.tar.gz
+  
+before_script:
+  - ./premake5 solution
+  - dotnet restore
+
+script:
+  - dotnet build -c Debug -o ../bin _test/test.csproj && dotnet ./bin/test.dll
+  - dotnet build -c Release -o ../bin _test/test.csproj && dotnet ./bin/test.dll
