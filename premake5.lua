@@ -64,7 +64,7 @@ if not os.ishost "windows" then
         description = "Create and open the yojimbo.net solution",
         execute = function ()
             os.execute [[
-dotnet new classlib --force -f netcoreapp2.2 -o _yojimbo -n yojimbo && rm _yojimbo/Class1.cs
+dotnet new classlib --force -f netcoreapp2.1 -o _yojimbo -n yojimbo && rm _yojimbo/Class1.cs
 sed -i 's/<\/TargetFramework>/<\/TargetFramework><DefineConstants>YOJIMBO;NETCODE_ENABLE_TESTS;RELIABLE_ENABLE_TESTS<\/DefineConstants>/' _yojimbo/yojimbo.csproj
 dotnet add _yojimbo package Portable.BouncyCastle
 cp yojimbo.cs _yojimbo
