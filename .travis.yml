@@ -1,10 +1,10 @@
 sudo: required
 
-dist: trusty
+dist: xenial
 
 language: csharp
 mono: none
-dotnet: 2.2.107
+dotnet: 2.2
 
 install:
   - wget https://github.com/premake/premake-core/releases/download/v5.0.0-alpha14/premake-5.0.0-alpha14-linux.tar.gz -O /tmp/premake5.tar.gz
