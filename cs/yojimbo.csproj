@@ -1,10 +1,39 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <OutputType>Library</OutputType>
+    <!-- tracks upstream yojimbo: cpp/ is the submodule this version was ported from -->
     <Version>1.13.5</Version>
-    <!-- formerly #define'd at the top of the single-file yojimbo.cs -->
-    <DefineConstants>$(DefineConstants);YOJIMBO;YOJIMBO_DEBUG_MEMORY_LEAKS;YOJIMBO_DEBUG_MESSAGE_BUDGET;YOJIMBO_ENABLE_LOGGING;NETCODE_ENABLE_TESTS;RELIABLE_ENABLE_TESTS</DefineConstants>
+    <!-- yojimbo_config.h: logging is on by default; YOJIMBO tells reliable it is built into yojimbo -->
+    <DefineConstants>$(DefineConstants);YOJIMBO;YOJIMBO_ENABLE_LOGGING</DefineConstants>
   </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)' == 'Debug'">
+    <!-- yojimbo_config.h: the debug checks are on in debug builds only -->
+    <DefineConstants>$(DefineConstants);YOJIMBO_DEBUG_MEMORY_LEAKS;YOJIMBO_DEBUG_MESSAGE_LEAKS;YOJIMBO_DEBUG_MESSAGE_BUDGET</DefineConstants>
+  </PropertyGroup>
+  <PropertyGroup>
+    <!-- NuGet package. The other projects in cs/ are programs and stay unpackable (Directory.Build.props). -->
+    <IsPackable>true</IsPackable>
+    <PackageId>yojimbo.net</PackageId>
+    <Title>yojimbo.net</Title>
+    <Authors>Glenn Fiedler;Sky Morey</Authors>
+    <Description>C# port of yojimbo, a network library for client/server games with dedicated servers, with netcode and reliable built in. Speaks the netcode 1.02 wire protocol and interoperates with the C/C++ originals.</Description>
+    <PackageTags>yojimbo;netcode;reliable;networking;udp;game;multiplayer</PackageTags>
+    <PackageLicenseExpression>BSD-3-Clause</PackageLicenseExpression>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageProjectUrl>https://github.com/netcode-io/yojimbo.net</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/netcode-io/yojimbo.net</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <!-- Source Link (built into the .NET SDK): map the pdb to the commit on GitHub, ship symbols as a .snupkg -->
+    <PublishRepositoryUrl>true</PublishRepositoryUrl>
+    <EmbedUntrackedSources>true</EmbedUntrackedSources>
+    <IncludeSymbols>true</IncludeSymbols>
+    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+    <Deterministic>true</Deterministic>
+    <ContinuousIntegrationBuild Condition="'$(CI)' == 'true'">true</ContinuousIntegrationBuild>
+  </PropertyGroup>
+  <ItemGroup>
+    <None Include="../README.md" Pack="true" PackagePath="/" Visible="false" />
+  </ItemGroup>
   <ItemGroup>
     <Compile Include="include/*.cs;source/*.cs;netcode/*.cs;reliable/*.cs;serialize/*.cs" />
   </ItemGroup>

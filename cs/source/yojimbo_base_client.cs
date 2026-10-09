@@ -201,7 +201,7 @@ namespace networkprotocol
         }
 
         public virtual byte[] AllocateBlock(int bytes) =>
-            new byte[bytes];
+            yojimbo.YOJIMBO_ALLOCATE(m_clientAllocator, bytes);
 
         public virtual void AttachBlockToMessage(Message message, byte[] block, int bytes)
         {
@@ -213,10 +213,8 @@ namespace networkprotocol
             blockMessage.AttachBlock(m_clientAllocator, block, bytes);
         }
 
-        public virtual void FreeBlock(ref byte[] block)
-        {
-            block = null;
-        }
+        public virtual void FreeBlock(ref byte[] block) =>
+            yojimbo.YOJIMBO_FREE(m_clientAllocator, ref block);
 
         public virtual bool CanSendMessage(int channelIndex)
         {
@@ -296,9 +294,18 @@ namespace networkprotocol
             yojimbo.assert(m_clientAllocator == null);
             yojimbo.assert(m_messageFactory == null);
             m_config.Validate();
-            m_packetBuffer = new byte[m_config.maxPacketSize];
-            // NOTE: the C# port allocates from the GC, so the memory block backing the client allocator is not allocated (null).
-            m_clientMemory = null;
+            m_packetBuffer = yojimbo.YOJIMBO_ALLOCATE(m_allocator, m_config.maxPacketSize);
+            if (m_packetBuffer == null)
+            {
+                DestroyInternal();
+                return false;
+            }
+            m_clientMemory = yojimbo.YOJIMBO_ALLOCATE_MEMORY(m_allocator, m_config.clientMemory);
+            if (m_clientMemory == null)
+            {
+                DestroyInternal();
+                return false;
+            }
             m_clientAllocator = m_adapter.CreateAllocator(m_allocator, m_clientMemory, m_config.clientMemory);
             if (m_clientAllocator == null)
             {
@@ -311,9 +318,21 @@ namespace networkprotocol
                 DestroyInternal();
                 return false;
             }
-            m_connection = new Connection(m_clientAllocator, m_messageFactory, m_config, m_time);
+            m_connection = yojimbo.YOJIMBO_NEW(m_clientAllocator, () => new Connection(m_clientAllocator, m_messageFactory, m_config, m_time));
+            if (m_connection == null)
+            {
+                DestroyInternal();
+                return false;
+            }
             if (m_config.networkSimulator)
-                m_networkSimulator = new NetworkSimulator(m_clientAllocator, m_config.maxSimulatorPackets, m_time);
+            {
+                m_networkSimulator = yojimbo.YOJIMBO_NEW(m_clientAllocator, () => new NetworkSimulator(m_clientAllocator, m_config.maxSimulatorPackets, m_time));
+                if (m_networkSimulator == null)
+                {
+                    DestroyInternal();
+                    return false;
+                }
+            }
             reliable.default_config(out var reliable_config);
             reliable_config.name = "client endpoint";
             reliable_config.context = this;
@@ -354,12 +373,22 @@ namespace networkprotocol
                 reliable.endpoint_destroy(ref m_endpoint);
                 m_endpoint = null;
             }
-            m_networkSimulator?.Dispose(); m_networkSimulator = null;
-            m_connection?.Dispose(); m_connection = null;
-            m_messageFactory?.Dispose(); m_messageFactory = null;
-            m_clientAllocator?.Dispose(); m_clientAllocator = null;
-            m_clientMemory = null;
-            m_packetBuffer = null;
+            if (m_clientAllocator != null)
+            {
+                yojimbo.YOJIMBO_DELETE(m_clientAllocator, ref m_networkSimulator);
+                yojimbo.YOJIMBO_DELETE(m_clientAllocator, ref m_connection);
+                yojimbo.YOJIMBO_DELETE(m_clientAllocator, ref m_messageFactory);
+                yojimbo.YOJIMBO_DELETE(m_allocator, ref m_clientAllocator);
+            }
+            else
+            {
+                // Nothing was ever built inside the client allocator, so nothing can be outstanding.
+                m_networkSimulator = null;
+                m_connection = null;
+                m_messageFactory = null;
+            }
+            yojimbo.YOJIMBO_FREE(m_allocator, ref m_clientMemory);
+            yojimbo.YOJIMBO_FREE(m_allocator, ref m_packetBuffer);
         }
 
         protected void SetClientState(ClientState clientState) =>
@@ -415,7 +444,7 @@ namespace networkprotocol
         Allocator m_allocator;                                              ///< The allocator passed to the client on creation.
         Adapter m_adapter;                                                  ///< The adapter specifies the allocator to use, and the message factory class.
         object m_context;                                                   ///< Context lets the user pass information to packet serialize functions.
-        byte[] m_clientMemory;                                              ///< The memory backing the client allocator (null in C#: GC allocated).
+        object m_clientMemory;                                              ///< The memory backing the client allocator (a placeholder in C#, see yojimbo.YOJIMBO_ALLOCATE_MEMORY). Allocated with m_allocator.
         Allocator m_clientAllocator;                                        ///< The client allocator. Everything allocated between connect and disconnected is allocated and freed via this allocator.
         reliable_endpoint_t m_endpoint;                                     ///< reliable.io endpoint.
         MessageFactory m_messageFactory;                                    ///< The client message factory. Created and destroyed on each connection attempt.

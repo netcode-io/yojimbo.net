@@ -44,7 +44,7 @@ public static class client
 
         var config = new ClientServerConfig();
 
-        var client = new Client(DefaultAllocator, new Address("0.0.0.0"), config, shared.adapter, time);
+        var client = new Client(GetDefaultAllocator(), new Address("0.0.0.0"), config, shared.adapter, time);
 
         var serverAddress = new Address("127.0.0.1", shared.ServerPort);
 

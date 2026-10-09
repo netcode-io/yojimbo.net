@@ -22,10 +22,6 @@
     USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
-#if DEBUG
-#define YOJIMBO_DEBUG_MESSAGE_LEAKS
-#endif
-
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -261,7 +257,7 @@ namespace networkprotocol
         {
             if (m_allocator != null)
             {
-                m_blockData = null;
+                yojimbo.YOJIMBO_FREE(m_allocator, ref m_blockData);
                 m_blockSize = 0;
                 m_allocator = null;
             }
@@ -293,7 +289,7 @@ namespace networkprotocol
         
         See tests/shared.h for an example showing how to use the macros.
      */
-    public class MessageFactory
+    public class MessageFactory : IDisposable
     {
         /**
             Message factory allocator.
@@ -407,7 +403,7 @@ namespace networkprotocol
                 allocated_messages.Remove(message);
 #endif
                 yojimbo.assert(m_allocator != null);
-                message.Dispose();
+                yojimbo.YOJIMBO_DELETE(m_allocator, ref message);
             }
         }
 
@@ -495,7 +491,7 @@ namespace networkprotocol
         {
             if (!Types.TryGetValue(type, out var message_class))
                 return null;
-            var message = (Message)Activator.CreateInstance(message_class);
+            var message = yojimbo.YOJIMBO_NEW(Allocator, () => (Message)Activator.CreateInstance(message_class));
             if (message == null)
                 return null;
             SetMessageType(message, type);
@@ -529,7 +525,12 @@ namespace networkprotocol
             if (stream.IsReading)
             {
                 var allocator = messageFactory.Allocator;
-                blockData = new byte[blockSize];
+                blockData = yojimbo.YOJIMBO_ALLOCATE(allocator, blockSize);
+                if (blockData == null)
+                {
+                    yojimbo.printf(yojimbo.LOG_LEVEL_ERROR, "error: failed to allocate message block (SerializeMessageBlock)\n");
+                    return false;
+                }
                 blockMessage.AttachBlock(allocator, blockData, blockSize);
             }
             else

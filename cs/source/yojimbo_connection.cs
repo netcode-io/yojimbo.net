@@ -57,7 +57,7 @@ namespace networkprotocol
             {
                 for (var i = 0; i < numChannelEntries; ++i)
                     channelEntry[i].Free(messageFactory);
-                channelEntry = null;
+                yojimbo.YOJIMBO_FREE(messageFactory.Allocator, ref channelEntry);
                 numChannelEntries = 0;
                 messageFactory = null;
             }
@@ -68,7 +68,15 @@ namespace networkprotocol
             yojimbo.assert(numEntries > 0);
             yojimbo.assert(numEntries <= yojimbo.MaxChannels);
             messageFactory = _messageFactory;
-            channelEntry = new ChannelPacketData[numEntries];
+            var allocator = messageFactory.Allocator;
+            channelEntry = yojimbo.YOJIMBO_ALLOCATE<ChannelPacketData>(allocator, numEntries);
+            if (channelEntry == null)
+            {
+                // On the read path numChannelEntries was already set from the wire before this
+                // call; reset it so Dispose doesn't iterate a null channelEntry array.
+                numChannelEntries = 0;
+                return false;
+            }
             for (var i = 0; i < numEntries; ++i)
             {
                 channelEntry[i] = new ChannelPacketData();
@@ -132,7 +140,7 @@ namespace networkprotocol
     /**
         Sends and receives messages across a set of user defined channels.
      */
-    public class Connection
+    public class Connection : IDisposable
     {
         public Connection(Allocator allocator, MessageFactory messageFactory, ConnectionConfig connectionConfig, double time)
         {
@@ -148,11 +156,11 @@ namespace networkprotocol
                 switch (m_connectionConfig.channel[channelIndex].type)
                 {
                     case ChannelType.CHANNEL_TYPE_RELIABLE_ORDERED:
-                        m_channel[channelIndex] = new ReliableOrderedChannel(m_allocator, messageFactory, m_connectionConfig.channel[channelIndex], m_connectionConfig.maxPacketSize, channelIndex, time);
+                        m_channel[channelIndex] = yojimbo.YOJIMBO_NEW<Channel>(m_allocator, () => new ReliableOrderedChannel(m_allocator, messageFactory, m_connectionConfig.channel[channelIndex], m_connectionConfig.maxPacketSize, channelIndex, time));
                         break;
 
                     case ChannelType.CHANNEL_TYPE_UNRELIABLE_UNORDERED:
-                        m_channel[channelIndex] = new UnreliableUnorderedChannel(m_allocator, messageFactory, m_connectionConfig.channel[channelIndex], m_connectionConfig.maxPacketSize, channelIndex, time);
+                        m_channel[channelIndex] = yojimbo.YOJIMBO_NEW<Channel>(m_allocator, () => new UnreliableUnorderedChannel(m_allocator, messageFactory, m_connectionConfig.channel[channelIndex], m_connectionConfig.maxPacketSize, channelIndex, time));
                         break;
 
                     default: yojimbo.assert(false, "unknown channel type"); break;
@@ -165,9 +173,7 @@ namespace networkprotocol
             yojimbo.assert(m_allocator != null);
             Reset();
             for (var i = 0; i < m_connectionConfig.numChannels; ++i)
-            {
-                m_channel[i]?.Dispose(); m_channel[i] = null;
-            }
+                yojimbo.YOJIMBO_DELETE(m_allocator, ref m_channel[i]);
             m_allocator = null;
         }
 
@@ -402,7 +408,11 @@ namespace networkprotocol
                 }
             }
 
-            // NOTE: upstream also checks m_allocator->GetErrorLevel() (CONNECTION_ERROR_ALLOCATOR). The C# Allocator is a GC stub with no error level.
+            if (m_allocator.ErrorLevel != AllocatorErrorLevel.ALLOCATOR_ERROR_NONE)
+            {
+                m_errorLevel = ConnectionErrorLevel.CONNECTION_ERROR_ALLOCATOR;
+                return;
+            }
 
             if (m_messageFactory.ErrorLevel != MessageFactoryErrorLevel.MESSAGE_FACTORY_ERROR_NONE)
             {

@@ -17,3 +17,6 @@ packages/
 # TypeScript port
 node_modules/
 dist/
+
+# Fuzz crash inputs (cs/fuzz)
+crash-*

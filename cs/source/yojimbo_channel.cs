@@ -29,6 +29,7 @@ using System.Linq;
 using System.Net;
 using System.Net.Sockets;
 using System.Reflection;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
 
@@ -86,6 +87,7 @@ namespace networkprotocol
         public void Free(MessageFactory messageFactory)
         {
             yojimbo.assert(initialized);
+            var allocator = messageFactory.Allocator;
             if (!blockMessage)
             {
                 if (message.numMessages > 0)
@@ -93,41 +95,30 @@ namespace networkprotocol
                     for (var i = 0; i < message.numMessages; ++i)
                         if (message.messages[i] != null)
                             messageFactory.ReleaseMessage(ref message.messages[i]);
+                    yojimbo.YOJIMBO_FREE(allocator, ref message.messages);
                 }
-                message.messages = null;
-                message.numMessages = 0;
             }
             else
             {
                 if (block.message != null)
                     messageFactory.ReleaseMessage(ref block.message);
-                block.fragmentData = null;
+                yojimbo.YOJIMBO_FREE(allocator, ref block.fragmentData);
             }
             initialized = false;
         }
 
-        static bool SerializeOrderedMessages(
+        static bool SerializeOrderedMessagesInternal(
             BaseStream stream,
             MessageFactory messageFactory,
             ref int numMessages,
             ref Message[] messages,
-            int maxMessagesPerPacket)
+            Span<int> messageTypes,
+            Span<ushort> messageIds)
         {
             var maxMessageType = messageFactory.NumTypes - 1;
 
-            var hasMessages = stream.IsWriting && numMessages != 0;
-
-            if (!stream.serialize_bool(ref hasMessages))
-                return false;
-
-            if (!hasMessages)
-                return true;
-
-            if (!stream.serialize_int(ref numMessages, 1, maxMessagesPerPacket))
-                return false;
-
-            var messageTypes = new int[numMessages];
-            var messageIds = new ushort[numMessages];
+            messageTypes.Slice(0, numMessages).Clear();
+            messageIds.Slice(0, numMessages).Clear();
 
             if (stream.IsWriting)
             {
@@ -141,7 +132,20 @@ namespace networkprotocol
                 }
             }
             else
-                messages = new Message[numMessages];
+            {
+                var allocator = messageFactory.Allocator;
+
+                messages = yojimbo.YOJIMBO_ALLOCATE<Message>(allocator, numMessages);
+
+                if (messages == null)
+                {
+                    // Out of memory. Leave the arm empty (numMessages = 0) so ChannelPacketData.Free
+                    // stays safe, then fail the read; the channel treats this as a serialize failure.
+                    numMessages = 0;
+                    yojimbo.printf(yojimbo.LOG_LEVEL_ERROR, "error: failed to allocate messages (SerializeOrderedMessages)\n");
+                    return false;
+                }
+            }
 
             if (!stream.serialize_bits(ref messageIds[0], 16))
                 return false;
@@ -185,16 +189,13 @@ namespace networkprotocol
             return true;
         }
 
-        static bool SerializeUnorderedMessages(
+        static bool SerializeOrderedMessages(
             BaseStream stream,
             MessageFactory messageFactory,
             ref int numMessages,
             ref Message[] messages,
-            int maxMessagesPerPacket,
-            int maxBlockSize)
+            int maxMessagesPerPacket)
         {
-            var maxMessageType = messageFactory.NumTypes - 1;
-
             var hasMessages = stream.IsWriting && numMessages != 0;
 
             if (!stream.serialize_bool(ref hasMessages))
@@ -206,7 +207,46 @@ namespace networkprotocol
             if (!stream.serialize_int(ref numMessages, 1, maxMessagesPerPacket))
                 return false;
 
-            var messageTypes = new int[numMessages];
+            // One heap block for the message type and id scratch arrays, so stack usage doesn't
+            // scale with maxMessagesPerPacket. The serialize body lives in a separate function so
+            // all its early returns funnel through the single free below.
+            var allocator = messageFactory.Allocator;
+
+            var scratch = yojimbo.YOJIMBO_ALLOCATE(allocator, (sizeof(int) + sizeof(ushort)) * numMessages);
+
+            if (scratch == null)
+            {
+                if (stream.IsReading)
+                {
+                    // Leave the arm empty (numMessages = 0) so ChannelPacketData.Free stays safe.
+                    // On write the messages remain owned by the packet data, so leave them alone.
+                    numMessages = 0;
+                }
+                yojimbo.printf(yojimbo.LOG_LEVEL_ERROR, "error: failed to allocate serialize scratch (SerializeOrderedMessages)\n");
+                return false;
+            }
+
+            var messageTypes = MemoryMarshal.Cast<byte, int>(scratch.AsSpan(0, sizeof(int) * numMessages));
+            var messageIds = MemoryMarshal.Cast<byte, ushort>(scratch.AsSpan(sizeof(int) * numMessages, sizeof(ushort) * numMessages));
+
+            var result = SerializeOrderedMessagesInternal(stream, messageFactory, ref numMessages, ref messages, messageTypes, messageIds);
+
+            yojimbo.YOJIMBO_FREE(allocator, ref scratch);
+
+            return result;
+        }
+
+        static bool SerializeUnorderedMessagesInternal(
+            BaseStream stream,
+            MessageFactory messageFactory,
+            ref int numMessages,
+            ref Message[] messages,
+            int maxBlockSize,
+            int[] messageTypes)
+        {
+            var maxMessageType = messageFactory.NumTypes - 1;
+
+            Array.Clear(messageTypes, 0, numMessages);
 
             if (stream.IsWriting)
             {
@@ -219,7 +259,20 @@ namespace networkprotocol
                 }
             }
             else
-                messages = new Message[numMessages];
+            {
+                var allocator = messageFactory.Allocator;
+
+                messages = yojimbo.YOJIMBO_ALLOCATE<Message>(allocator, numMessages);
+
+                if (messages == null)
+                {
+                    // Out of memory. Leave the arm empty (numMessages = 0) so ChannelPacketData.Free
+                    // stays safe, then fail the read; the channel treats this as a serialize failure.
+                    numMessages = 0;
+                    yojimbo.printf(yojimbo.LOG_LEVEL_ERROR, "error: failed to allocate messages (SerializeUnorderedMessages)\n");
+                    return false;
+                }
+            }
 
             for (var i = 0; i < numMessages; ++i)
             {
@@ -264,6 +317,51 @@ namespace networkprotocol
             return true;
         }
 
+        static bool SerializeUnorderedMessages(
+            BaseStream stream,
+            MessageFactory messageFactory,
+            ref int numMessages,
+            ref Message[] messages,
+            int maxMessagesPerPacket,
+            int maxBlockSize)
+        {
+            var hasMessages = stream.IsWriting && numMessages != 0;
+
+            if (!stream.serialize_bool(ref hasMessages))
+                return false;
+
+            if (!hasMessages)
+                return true;
+
+            if (!stream.serialize_int(ref numMessages, 1, maxMessagesPerPacket))
+                return false;
+
+            // Heap scratch for the message types, so stack usage doesn't scale with
+            // maxMessagesPerPacket. The serialize body lives in a separate function so all its
+            // early returns funnel through the single free below.
+            var allocator = messageFactory.Allocator;
+
+            var messageTypes = yojimbo.YOJIMBO_ALLOCATE<int>(allocator, numMessages);
+
+            if (messageTypes == null)
+            {
+                if (stream.IsReading)
+                {
+                    // Leave the arm empty (numMessages = 0) so ChannelPacketData.Free stays safe.
+                    // On write the messages remain owned by the packet data, so leave them alone.
+                    numMessages = 0;
+                }
+                yojimbo.printf(yojimbo.LOG_LEVEL_ERROR, "error: failed to allocate serialize scratch (SerializeUnorderedMessages)\n");
+                return false;
+            }
+
+            var result = SerializeUnorderedMessagesInternal(stream, messageFactory, ref numMessages, ref messages, maxBlockSize, messageTypes);
+
+            yojimbo.YOJIMBO_FREE(allocator, ref messageTypes);
+
+            return result;
+        }
+
         static bool SerializeBlockFragment(
             BaseStream stream,
             MessageFactory messageFactory,
@@ -306,7 +404,15 @@ namespace networkprotocol
                 return false;
 
             if (stream.IsReading)
-                block.fragmentData = new byte[block.fragmentSize];
+            {
+                block.fragmentData = yojimbo.YOJIMBO_ALLOCATE(messageFactory.Allocator, block.fragmentSize);
+
+                if (block.fragmentData == null)
+                {
+                    yojimbo.printf(yojimbo.LOG_LEVEL_ERROR, "error: failed to serialize block fragment (SerializeBlockFragment)\n");
+                    return false;
+                }
+            }
 
             if (!stream.serialize_bytes(block.fragmentData, block.fragmentSize))
                 return false;
@@ -480,7 +586,7 @@ namespace networkprotocol
     }
 
     /// Common functionality shared across all channel types.
-    public abstract class Channel
+    public abstract class Channel : IDisposable
     {
         /**
             Channel constructor.

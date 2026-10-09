@@ -298,7 +298,7 @@ namespace networkprotocol
                         for (var i = 0; i < numPackets; ++i)
                         {
                             netcode.client_send_packet(m_client, packetData[i], packetBytes[i]);
-                            packetData[i] = null;
+                            yojimbo.YOJIMBO_FREE(networkSimulator.Allocator, ref packetData[i]);
                         }
                     }
                 }

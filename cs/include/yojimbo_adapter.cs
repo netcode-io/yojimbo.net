@@ -59,12 +59,12 @@ namespace networkprotocol
         /**
             Override this function to specify your own custom allocator class.
             @param allocator The base allocator that must be used to allocate your allocator instance.
-            @param memory The block of memory backing your allocator.
+            @param memory The block of memory backing your allocator. In C# this is a placeholder (see yojimbo.YOJIMBO_ALLOCATE_MEMORY).
             @param bytes The number of bytes of memory available to your allocator.
             @returns A pointer to the allocator instance you created.
          */
         public virtual Allocator CreateAllocator(Allocator allocator, object memory, int bytes) =>
-            new Allocator();
+            yojimbo.YOJIMBO_NEW(allocator, () => new TLSF_Allocator(memory, bytes));
 
         /**
             You must override this method to create the message factory used by the client and server.

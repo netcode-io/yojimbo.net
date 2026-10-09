@@ -1,6 +1,7 @@
 <Solution>
   <Project Path="client.csproj" />
   <Project Path="custom_packet_io_test.csproj" />
+  <Project Path="fuzz.csproj" />
   <Project Path="loopback.csproj" />
   <Project Path="server.csproj" />
   <Project Path="soak.csproj" />

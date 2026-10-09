@@ -42,7 +42,6 @@ namespace networkprotocol
 
         public const int DEFAULT_TIMEOUT = 10;
 
-        public static Allocator DefaultAllocator => Allocator.Default;
     }
 
     /// Determines the reliability and ordering guarantees for a channel.
@@ -207,7 +206,7 @@ namespace networkprotocol
     {
         public ulong protocolId = 0;                                            ///< Clients can only connect to servers with the same protocol id. Use this for versioning.
         public int timeout = yojimbo.DEFAULT_TIMEOUT;                           ///< Timeout value in seconds. Set to negative value to disable timeouts (for debugging only).
-        public int clientMemory = 10 * 1024 * 1024;                             ///< Memory allocated inside Client for packets, messages and stream allocations (bytes). NOTE: the C# port allocates from the GC; this only sizes custom Adapter allocators.
+        public int clientMemory = 10 * 1024 * 1024;                             ///< Memory allocated inside Client for packets, messages and stream allocations (bytes). NOTE: the C# port allocates from the GC; this is the byte budget of the client allocator (see TLSF_Allocator).
         public int serverGlobalMemory = 10 * 1024 * 1024;                       ///< Memory allocated inside Server for global connection request and challenge response packets (bytes). See note on clientMemory.
         public int serverPerClientMemory = 10 * 1024 * 1024;                    ///< Memory allocated inside Server for packets, messages and stream allocations per-client (bytes). See note on clientMemory.
         public bool networkSimulator = true;                                    ///< If true then a network simulator is created for simulating latency, jitter, packet loss and duplicates.

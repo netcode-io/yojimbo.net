@@ -1,0 +1,50 @@
+# TypeScript port: typecheck, unit tests, custom packet I/O, browser build, and the WebRTC transport test.
+#
+# The tests bind fixed UDP ports (40000, 30000, ...), so each job runs its suites one after another.
+# Interop against C++ and C# runs in cs.yml.
+
+name: ts
+
+on:
+  push:
+    branches: [ master ]
+    paths: [ 'ts/**', '.github/workflows/ts.yml' ]
+  pull_request:
+    paths: [ 'ts/**', '.github/workflows/ts.yml' ]
+  workflow_dispatch:
+
+concurrency:
+  group: ts-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+
+  test:
+    name: test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ ubuntu-latest, macos-latest, windows-latest ]
+    defaults:
+      run:
+        working-directory: ts
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: ts/package-lock.json
+      - run: npm ci
+      - name: typecheck
+        run: npm run typecheck
+      - name: test
+        run: npm test
+      - name: custom packet io test
+        run: node custom_packet_io_test.ts
+      - name: build (browser bundle)
+        run: npm run build
+      - name: webrtc test
+        run: npm run test:webrtc

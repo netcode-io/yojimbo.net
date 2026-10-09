@@ -95,10 +95,10 @@ internal class TestExhaustStreamAllocatorOnReadMessage : Message
             var buffers = new byte[NumBuffers][];
 
             for (var i = 0; i < NumBuffers; ++i)
-                buffers[i] = new byte[1024 * 1024];
+                buffers[i] = yojimbo.YOJIMBO_ALLOCATE(stream.Allocator, 1024 * 1024);
 
             for (var i = 0; i < NumBuffers; ++i)
-                buffers[i] = null;
+                yojimbo.YOJIMBO_FREE(stream.Allocator, ref buffers[i]);
         }
 
         return true;
@@ -159,5 +159,5 @@ internal class SingleBlockTestMessageFactory : MESSAGE_FACTORY_START
 public class TestAdapter : Adapter
 {
     public override MessageFactory CreateMessageFactory(Allocator allocator) =>
-        new TestMessageFactory(allocator);
+        yojimbo.YOJIMBO_NEW(allocator, () => new TestMessageFactory(allocator));
 }

@@ -38,7 +38,7 @@ public static class loopback
         public Server server = null;
 
         public override MessageFactory CreateMessageFactory(Allocator allocator) =>
-             new TestMessageFactory(allocator);
+             YOJIMBO_NEW(allocator, () => new TestMessageFactory(allocator));
 
         public override void ClientSendLoopbackPacket(int clientIndex, byte[] packetData, int packetBytes, ulong packetSequence)
         {
@@ -66,7 +66,7 @@ public static class loopback
 
         Console.Write($"starting server on port {shared.ServerPort}\n");
 
-        var server = new Server(DefaultAllocator, privateKey, new Address("127.0.0.1", shared.ServerPort), config, loopbackAdapter, time);
+        var server = new Server(GetDefaultAllocator(), privateKey, new Address("127.0.0.1", shared.ServerPort), config, loopbackAdapter, time);
 
         server.Start(MaxClients);
 
@@ -79,7 +79,7 @@ public static class loopback
         random_bytes(ref clientId, 8);
         Console.Write($"client id is {clientId:x16}\n");
 
-        var client = new Client(DefaultAllocator, new Address("0.0.0.0"), config, loopbackAdapter, time);
+        var client = new Client(GetDefaultAllocator(), new Address("0.0.0.0"), config, loopbackAdapter, time);
 
         var serverAddress = new Address("127.0.0.1", shared.ServerPort);
 

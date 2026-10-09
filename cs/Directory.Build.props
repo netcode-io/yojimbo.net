@@ -6,6 +6,8 @@
   -->
   <PropertyGroup>
     <!-- override with -p:BuildRoot=/some/dir/ to keep parallel builds apart -->
+    <!-- the SDK defaults Configuration after this file is imported, so default it here or OutputPath below loses it when a single project is built -->
+    <Configuration Condition="'$(Configuration)' == ''">Debug</Configuration>
     <BuildRoot Condition="'$(BuildRoot)' == ''">$(MSBuildThisFileDirectory)</BuildRoot>
     <BaseIntermediateOutputPath>$(BuildRoot)obj/$(MSBuildProjectName)/</BaseIntermediateOutputPath>
     <OutputPath>$(BuildRoot)bin/$(MSBuildProjectName)/$(Configuration)/</OutputPath>
@@ -17,6 +19,8 @@
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
     <RootNamespace>networkprotocol</RootNamespace>
+    <!-- only the library is packaged (yojimbo.csproj opts back in) -->
+    <IsPackable>false</IsPackable>
     <!-- C-style port: lower-case type names, unused locals/fields mirror the original source -->
     <NoWarn>$(NoWarn);CS0162;CS0168;CS0169;CS0219;CS0414;CS0649;CS1717;CS8981</NoWarn>
   </PropertyGroup>

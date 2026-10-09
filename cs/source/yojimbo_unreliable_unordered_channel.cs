@@ -58,9 +58,9 @@ namespace networkprotocol
         : base(allocator, messageFactory, config, maxPacketSize, channelIndex, time)
         {
             yojimbo.assert(config.type == ChannelType.CHANNEL_TYPE_UNRELIABLE_UNORDERED);
-            m_messageSendQueue = new QueueEx<Message>(allocator, m_config.messageSendQueueSize);
-            m_messageReceiveQueue = new QueueEx<Message>(allocator, m_config.messageReceiveQueueSize);
-            m_packetMessages = new Message[m_config.maxMessagesPerPacket];
+            m_messageSendQueue = yojimbo.YOJIMBO_NEW(m_allocator, () => new QueueEx<Message>(m_allocator, m_config.messageSendQueueSize));
+            m_messageReceiveQueue = yojimbo.YOJIMBO_NEW(m_allocator, () => new QueueEx<Message>(m_allocator, m_config.messageReceiveQueueSize));
+            m_packetMessages = yojimbo.YOJIMBO_ALLOCATE<Message>(m_allocator, m_config.maxMessagesPerPacket);
             Reset();
         }
 
@@ -71,9 +71,9 @@ namespace networkprotocol
         public override void Dispose()
         {
             Reset();
-            m_messageSendQueue?.Dispose(); m_messageSendQueue = null;
-            m_messageReceiveQueue?.Dispose(); m_messageReceiveQueue = null;
-            m_packetMessages = null;
+            yojimbo.YOJIMBO_DELETE(m_allocator, ref m_messageSendQueue);
+            yojimbo.YOJIMBO_DELETE(m_allocator, ref m_messageReceiveQueue);
+            yojimbo.YOJIMBO_FREE(m_allocator, ref m_packetMessages);
         }
 
         public override void Reset()
@@ -230,7 +230,20 @@ namespace networkprotocol
             packetData.Initialize();
             packetData.channelIndex = (ushort)ChannelIndex;
             packetData.message.numMessages = numMessages;
-            packetData.message.messages = new Message[numMessages];
+            packetData.message.messages = yojimbo.YOJIMBO_ALLOCATE<Message>(allocator, numMessages);
+
+            if (packetData.message.messages == null)
+            {
+                // Out of memory. These messages were already popped off the send queue, so this
+                // channel owns the only reference to each: release them here or they leak. Leave the
+                // arm empty (numMessages = 0) so packetData stays safe, and send no data this packet.
+                for (var i = 0; i < numMessages; ++i)
+                    m_messageFactory.ReleaseMessage(ref messages[i]);
+                packetData.message.numMessages = 0;
+                SetErrorLevel(ChannelErrorLevel.CHANNEL_ERROR_OUT_OF_MEMORY);
+                return 0;
+            }
+
             for (var i = 0; i < numMessages; ++i)
             {
                 packetData.message.messages[i] = messages[i];

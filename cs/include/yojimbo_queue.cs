@@ -53,7 +53,7 @@ namespace networkprotocol
             m_startIndex = 0;
             m_numEntries = 0;
             m_allocator = allocator;
-            m_entries = new T[size];
+            m_entries = yojimbo.YOJIMBO_ALLOCATE<T>(allocator, size);
         }
 
         /**
@@ -61,7 +61,8 @@ namespace networkprotocol
          */
         public void Dispose()
         {
-            m_entries = null;
+            yojimbo.assert(m_allocator != null);
+            yojimbo.YOJIMBO_FREE(m_allocator, ref m_entries);
             m_arraySize = 0;
             m_startIndex = 0;
             m_numEntries = 0;

@@ -77,7 +77,7 @@ namespace networkprotocol
         @see MeasureStream
      */
 
-    public abstract class Serializable
+    public abstract class Serializable : IDisposable
     {
         public virtual void Dispose() { }
 

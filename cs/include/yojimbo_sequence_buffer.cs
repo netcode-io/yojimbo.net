@@ -41,7 +41,7 @@ namespace networkprotocol
         This is incredibly useful and is used as the foundation of the packet level ack system and the reliable message send and receive queues.
         @see Connection
      */
-    public class SequenceBuffer<T> where T : class, new()
+    public class SequenceBuffer<T> : IDisposable where T : class, new()
     {
         /**
             Sequence buffer constructor.
@@ -54,8 +54,8 @@ namespace networkprotocol
             m_size = size;
             m_sequence = 0;
             m_allocator = allocator;
-            m_entry_sequence = new uint[size];
-            m_entries = new T[size];
+            m_entry_sequence = yojimbo.YOJIMBO_ALLOCATE<uint>(allocator, size);
+            m_entries = yojimbo.YOJIMBO_ALLOCATE<T>(allocator, size);
             for (var i = 0; i < size; ++i)
                 m_entries[i] = new T();
             Reset();
@@ -67,8 +67,8 @@ namespace networkprotocol
         public void Dispose()
         {
             yojimbo.assert(m_allocator != null);
-            m_entries = null;
-            m_entry_sequence = null;
+            yojimbo.YOJIMBO_FREE(m_allocator, ref m_entries);
+            yojimbo.YOJIMBO_FREE(m_allocator, ref m_entry_sequence);
             m_allocator = null;
         }
 

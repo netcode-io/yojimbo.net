@@ -208,7 +208,7 @@ public static class soak
 
         var serverAddress = new Address("127.0.0.1", shared.ServerPort);
 
-        var server = new Server(DefaultAllocator, privateKey, serverAddress, config, shared.adapter, time);
+        var server = new Server(GetDefaultAllocator(), privateKey, serverAddress, config, shared.adapter, time);
 
         server.Start(1);
 
@@ -221,7 +221,7 @@ public static class soak
         var clientId = 0UL;
         random_bytes(ref clientId, 8);
 
-        var client = new Client(DefaultAllocator, new Address("0.0.0.0"), config, shared.adapter, time);
+        var client = new Client(GetDefaultAllocator(), new Address("0.0.0.0"), config, shared.adapter, time);
 
         client.InsecureConnect(privateKey, clientId, serverAddress);
 

@@ -38,6 +38,21 @@ namespace networkprotocol
     {
         #region init / term
 
+        static Allocator g_defaultAllocator;
+
+        /**
+            Get the default allocator.
+            Use this allocator when you just want to use the GC, but in the form of a yojimbo allocator.
+            This allocator instance is created inside InitializeYojimbo and destroyed in ShutdownYojimbo.
+            In debug build, it will automatically check for memory leaks and print them out for you when you shutdown the library.
+            @returns The default allocator instance.
+         */
+        public static Allocator GetDefaultAllocator()
+        {
+            assert(g_defaultAllocator != null);
+            return g_defaultAllocator;
+        }
+
         /**
             Initialize the yojimbo library.
             Call this before calling any yojimbo library functions.
@@ -55,6 +70,10 @@ namespace networkprotocol
                 netcode.term();
                 return false;
             }
+
+            // Create the default allocator last, so an earlier failure can't leak it.
+            assert(g_defaultAllocator == null);
+            g_defaultAllocator = new DefaultAllocator();
 
             return true;
         }
@@ -74,7 +93,12 @@ namespace networkprotocol
         public static void ShutdownYojimbo()
         {
             reliable.term();
+
             netcode.term();
+
+            assert(g_defaultAllocator != null);
+            g_defaultAllocator?.Dispose();
+            g_defaultAllocator = null;
         }
 
         #endregion
