@@ -13,3 +13,6 @@ packages/
 .DS_Store
 *.sublime-project
 *.sublime-workspace
+
+# Fuzz crash inputs (cs/fuzz)
+crash-*
