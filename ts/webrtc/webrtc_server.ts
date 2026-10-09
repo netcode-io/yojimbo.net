@@ -631,9 +631,10 @@ export class WebRTCServerAdapter extends Adapter
                 res.setHeader( 'Cache-Control', 'no-store' );
                 if ( status === 413 || status === 408 )
                 {
-                    // the body may still be arriving: answer, then drop the connection
+                    // the body may still be arriving. answer, then discard what's left (bounded) before closing: closing
+                    // with unread data sends a TCP RST, and Windows clients drop the response they haven't read yet
                     res.setHeader( 'Connection', 'close' );
-                    res.on( 'finish', () => req.destroy() );
+                    res.on( 'finish', () => DrainThenClose( req ) );
                 }
                 res.end( status === 500 ? 'internal error' : reason );
             }
@@ -1017,6 +1018,22 @@ export async function ShutdownWebRTC(): Promise<void>
 }
 
 /** Read a request body as UTF-8 with a size cap and a deadline. */
+
+/** Discard the rest of a refused request body, at most 1 MB or 1 s, then close the connection. */
+
+function DrainThenClose( req: IncomingMessage ): void
+{
+    const DrainMaxBytes = 1024 * 1024;
+    const DrainMaxMs = 1000;
+    let drained = 0;
+    const close = () => { clearTimeout( timer ); req.off( 'data', onData ); req.destroy(); };
+    const onData = ( chunk: Uint8Array ) => { drained += chunk.length; if ( drained > DrainMaxBytes ) close(); };
+    const timer = setTimeout( close, DrainMaxMs );
+    req.on( 'data', onData );
+    req.once( 'end', close );
+    req.once( 'error', close );
+    req.resume();
+}
 
 function ReadBody( req: IncomingMessage, maxBytes: number, timeoutMs: number ): Promise<string>
 {
