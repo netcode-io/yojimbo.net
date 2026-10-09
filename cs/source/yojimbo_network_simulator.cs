@@ -39,7 +39,7 @@ namespace networkprotocol
         This is useful during development, so your game is tested and played under real world conditions, instead of ideal LAN conditions.
         This simulator works on packet send. This means that if you want 125ms of latency (round trip), you must to add 125/2 = 62.5ms of latency to each side.
      */
-    public class NetworkSimulator
+    public class NetworkSimulator : IDisposable
     {
         /**
             Create a network simulator.
@@ -64,7 +64,7 @@ namespace networkprotocol
             m_duplicates = 0.0f;
             m_active = false;
             m_numPacketEntries = numPackets;
-            m_packetEntries = new PacketEntry[numPackets];
+            m_packetEntries = yojimbo.YOJIMBO_ALLOCATE<PacketEntry>(allocator, numPackets);
             yojimbo.assert(m_packetEntries != null);
             for (var i = 0; i < numPackets; ++i)
                 m_packetEntries[i] = new PacketEntry();
@@ -80,7 +80,7 @@ namespace networkprotocol
             yojimbo.assert(m_packetEntries != null);
             yojimbo.assert(m_numPacketEntries > 0);
             DiscardPackets();
-            m_packetEntries = null;
+            yojimbo.YOJIMBO_FREE(m_allocator, ref m_packetEntries);
             m_numPacketEntries = 0;
             m_allocator = null;
         }
@@ -158,7 +158,10 @@ namespace networkprotocol
             // PacketEntry to a local here used to orphan the new packet and lose both it and the old one.
             var packetEntry = m_packetEntries[m_currentIndex];
             if (packetEntry.packetData != null)
+            {
+                yojimbo.YOJIMBO_FREE(m_allocator, ref packetEntry.packetData);
                 packetEntry.Clear();
+            }
 
             var delay = m_latency / 1000.0;
 
@@ -166,7 +169,14 @@ namespace networkprotocol
                 delay += yojimbo.random_float(-m_jitter, +m_jitter) / 1000.0;
 
             packetEntry.to = to;
-            packetEntry.packetData = new byte[packetBytes];
+            packetEntry.packetData = yojimbo.YOJIMBO_ALLOCATE(m_allocator, packetBytes);
+            if (packetEntry.packetData == null)
+            {
+                // The simulator is lossy by design, so on OOM just drop this packet (leaving an
+                // empty slot, which ReceivePackets skips) rather than dereferencing null.
+                packetEntry.Clear();
+                return;
+            }
             Buffer.BlockCopy(packetData, 0, packetEntry.packetData, 0, packetBytes);
             packetEntry.packetBytes = packetBytes;
             packetEntry.deliveryTime = m_time + delay;
@@ -176,13 +186,24 @@ namespace networkprotocol
             {
                 var nextPacketEntry = m_packetEntries[m_currentIndex];
                 if (nextPacketEntry.packetData != null)
+                {
+                    yojimbo.YOJIMBO_FREE(m_allocator, ref nextPacketEntry.packetData);
                     nextPacketEntry.Clear();
+                }
                 nextPacketEntry.to = to;
-                nextPacketEntry.packetData = new byte[packetBytes];
-                Buffer.BlockCopy(packetData, 0, nextPacketEntry.packetData, 0, packetBytes);
-                nextPacketEntry.packetBytes = packetBytes;
-                nextPacketEntry.deliveryTime = m_time + delay + yojimbo.random_float(0, +1.0f);
-                m_currentIndex = (m_currentIndex + 1) % m_numPacketEntries;
+                nextPacketEntry.packetData = yojimbo.YOJIMBO_ALLOCATE(m_allocator, packetBytes);
+                if (nextPacketEntry.packetData != null)
+                {
+                    Buffer.BlockCopy(packetData, 0, nextPacketEntry.packetData, 0, packetBytes);
+                    nextPacketEntry.packetBytes = packetBytes;
+                    nextPacketEntry.deliveryTime = m_time + delay + yojimbo.random_float(0, +1.0f);
+                    m_currentIndex = (m_currentIndex + 1) % m_numPacketEntries;
+                }
+                else
+                {
+                    // OOM on the duplicate copy: just skip the duplicate (leave an empty slot).
+                    nextPacketEntry.Clear();
+                }
             }
         }
 
@@ -236,6 +257,7 @@ namespace networkprotocol
                 var packetEntry = m_packetEntries[i];
                 if (packetEntry.packetData == null)
                     continue;
+                yojimbo.YOJIMBO_FREE(m_allocator, ref packetEntry.packetData);
                 packetEntry.Clear();
             }
         }
@@ -251,6 +273,7 @@ namespace networkprotocol
                 var packetEntry = m_packetEntries[i];
                 if (packetEntry.packetData == null || packetEntry.to != clientIndex)
                     continue;
+                yojimbo.YOJIMBO_FREE(m_allocator, ref packetEntry.packetData);
                 packetEntry.Clear();
             }
         }

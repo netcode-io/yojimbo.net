@@ -39,7 +39,7 @@ public static class interop
         var time = 100.0;
         const double deltaTime = 0.01;
 
-        var server = new Server(DefaultAllocator, privateKey, new Address("127.0.0.1", (ushort)port), config, shared.adapter, time);
+        var server = new Server(GetDefaultAllocator(), privateKey, new Address("127.0.0.1", (ushort)port), config, shared.adapter, time);
         if (!server.Start(MaxClients))
         {
             Console.Write("server: failed to start\n");
@@ -127,7 +127,7 @@ public static class interop
         var time = 100.0;
         const double deltaTime = 0.01;
 
-        var client = new Client(DefaultAllocator, new Address("0.0.0.0"), config, shared.adapter, time);
+        var client = new Client(GetDefaultAllocator(), new Address("0.0.0.0"), config, shared.adapter, time);
         client.InsecureConnect(privateKey, clientId, new Address("127.0.0.1", (ushort)port));
 
         var numSent = 0;

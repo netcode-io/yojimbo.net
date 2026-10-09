@@ -48,6 +48,47 @@ public static class test
             CheckHandler(conditionText, function, file, line);
     }
 
+    // Allocator used by the allocation-failure tests. Delegates to the GC, tracks the number of
+    // outstanding blocks so leaks are observable, and can be "armed" to start returning null after a
+    // given number of successful allocations (to force a failure at a specific point).
+    class ArmableAllocator : Allocator
+    {
+        public void Arm(int allocsUntilFail) => m_allocsUntilFail = allocsUntilFail;
+        public void Disarm() => m_allocsUntilFail = -1;
+        public int Outstanding => m_outstanding;
+
+        public override T Allocate<T>(int size, Func<T> create, string file, int line)
+        {
+            if (m_allocsUntilFail == 0)
+            {
+                SetErrorLevel(AllocatorErrorLevel.ALLOCATOR_ERROR_OUT_OF_MEMORY);
+                return null;
+            }
+            if (m_allocsUntilFail > 0)
+                m_allocsUntilFail--;
+            var p = create();
+            if (p == null)
+            {
+                SetErrorLevel(AllocatorErrorLevel.ALLOCATOR_ERROR_OUT_OF_MEMORY);
+                return null;
+            }
+            m_outstanding++;
+            TrackAlloc(p, size, file, line);
+            return p;
+        }
+
+        public override void Free(object p, string file, int line)
+        {
+            if (p == null)
+                return;
+            m_outstanding--;
+            TrackFree(p, file, line);
+        }
+
+        int m_allocsUntilFail = -1;
+        int m_outstanding = 0;
+    }
+
     static void test_endian()
     {
         const ulong value = 0x11223344UL;
@@ -67,7 +108,7 @@ public static class test
     {
         const int QueueSize = 1024;
 
-        var queue = new QueueEx<int>(DefaultAllocator, QueueSize);
+        using var queue = new QueueEx<int>(GetDefaultAllocator(), QueueSize);
 
         check(queue.IsEmpty);
         check(!queue.IsFull);
@@ -305,7 +346,7 @@ public static class test
             context.min = -10;
             context.max = +10;
 
-            var writeStream = new WriteStream(DefaultAllocator, buffer, BufferSize);
+            var writeStream = new WriteStream(GetDefaultAllocator(), buffer, BufferSize);
 
             var writeObject = TestObject.CreateInitialized();
             writeStream.Context = context;
@@ -317,7 +358,7 @@ public static class test
             Array.Clear(buffer, bytesWritten, BufferSize - bytesWritten);
 
             var readObject = new TestObject();
-            var readStream = new ReadStream(DefaultAllocator, buffer, bytesWritten);
+            var readStream = new ReadStream(GetDefaultAllocator(), buffer, bytesWritten);
             readStream.Context = context;
             check(readObject.Serialize(readStream));
             check(readObject == writeObject);
@@ -783,7 +824,7 @@ public static class test
 
             const int NumEntries = 4;
 
-            var sim = new NetworkSimulator(DefaultAllocator, NumEntries, 0.0);
+            using var sim = new NetworkSimulator(GetDefaultAllocator(), NumEntries, 0.0);
 
             // Negative loss/duplicate rates make those RNG checks impossible to fire (random_float is
             // always >= 0), so sends are fully deterministic, and they mark the simulator active.
@@ -817,6 +858,7 @@ public static class test
                     check(packetData[i][0] == (byte)to[i]);
                     seen[to[i]] = true;
                     totalReceived++;
+                    YOJIMBO_FREE(sim.Allocator, ref packetData[i]);
                 }
             }
 
@@ -832,7 +874,7 @@ public static class test
 
             const int NumEntries = 2;
 
-            var sim = new NetworkSimulator(DefaultAllocator, NumEntries, 0.0);
+            using var sim = new NetworkSimulator(GetDefaultAllocator(), NumEntries, 0.0);
             sim.SetPacketLoss(-1.0f);
             sim.SetDuplicates(-1.0f);
 
@@ -852,8 +894,11 @@ public static class test
             check(n == NumEntries);
             var sawNewest = false;
             for (var i = 0; i < n; ++i)
+            {
                 if (to[i] == NumEntries && packetData[i][0] == NumEntries + 1)
                     sawNewest = true;
+                YOJIMBO_FREE(sim.Allocator, ref packetData[i]);
+            }
             check(sawNewest);
         }
 
@@ -861,7 +906,7 @@ public static class test
         {
             const int Size = 300;
 
-            var bit_array = new BitArray(DefaultAllocator, Size);
+            using var bit_array = new BitArray(GetDefaultAllocator(), Size);
 
             // verify initial conditions
 
@@ -920,7 +965,7 @@ public static class test
         {
             const int Size = 256;
 
-            var sequence_buffer = new SequenceBuffer<TestSequenceData>(DefaultAllocator, Size);
+            using var sequence_buffer = new SequenceBuffer<TestSequenceData>(GetDefaultAllocator(), Size);
 
             for (ushort i = 0; i < Size; ++i)
                 check(sequence_buffer.Find(i) == null);
@@ -965,6 +1010,51 @@ public static class test
 
         static void test_allocator_tlsf()
         {
+            const int NumBlocks = 256;
+            const int BlockSize = 1024;
+            const int MemorySize = NumBlocks * BlockSize;
+
+            // the C# TLSF_Allocator draws its blocks from the GC, so it needs no backing memory, only its size
+            using var allocator = new TLSF_Allocator(null, MemorySize);
+
+            var blockData = new byte[NumBlocks][];
+
+            var stopIndex = 0;
+
+            for (var i = 0; i < NumBlocks; ++i)
+            {
+                blockData[i] = YOJIMBO_ALLOCATE(allocator, BlockSize);
+
+                if (blockData[i] == null)
+                {
+                    check(allocator.ErrorLevel == AllocatorErrorLevel.ALLOCATOR_ERROR_OUT_OF_MEMORY);
+                    allocator.ClearError();
+                    check(allocator.ErrorLevel == AllocatorErrorLevel.ALLOCATOR_ERROR_NONE);
+                    stopIndex = i;
+                    break;
+                }
+
+                check(blockData[i] != null);
+                check(allocator.ErrorLevel == AllocatorErrorLevel.ALLOCATOR_ERROR_NONE);
+
+                Array.Fill(blockData[i], (byte)(i + 10));
+            }
+
+            check(stopIndex > NumBlocks / 2);
+
+            for (var i = 0; i < NumBlocks - 1; ++i)
+            {
+                if (blockData[i] != null)
+                {
+                    for (var j = 0; j < BlockSize; ++j)
+                        check(blockData[i][j] == (byte)(i + 10));
+                }
+
+                YOJIMBO_FREE(allocator, ref blockData[i]);
+            }
+
+            // C#: freeing returns the bytes to the heap
+            check(allocator.BytesAllocated == 0);
         }
 
         static void PumpConnectionUpdate(ConnectionConfig connectionConfig, ref double time, Connection sender, Connection receiver, ref ushort senderSequence, ref ushort receiverSequence, float deltaTime = 0.1f, int packetLossPercent = 90)
@@ -996,14 +1086,14 @@ public static class test
 
         static void test_connection_reliable_ordered_messages()
         {
-            var messageFactory = new TestMessageFactory(DefaultAllocator);
+            using var messageFactory = new TestMessageFactory(GetDefaultAllocator());
 
             var time = 100.0;
 
             var connectionConfig = new ConnectionConfig();
 
-            var sender = new Connection(DefaultAllocator, messageFactory, connectionConfig, time);
-            var receiver = new Connection(DefaultAllocator, messageFactory, connectionConfig, time);
+            using var sender = new Connection(GetDefaultAllocator(), messageFactory, connectionConfig, time);
+            using var receiver = new Connection(GetDefaultAllocator(), messageFactory, connectionConfig, time);
 
             const int NumMessagesSent = 64;
 
@@ -1059,14 +1149,14 @@ public static class test
 
         static void test_connection_reliable_ordered_blocks()
         {
-            var messageFactory = new TestMessageFactory(DefaultAllocator);
+            using var messageFactory = new TestMessageFactory(GetDefaultAllocator());
 
             var time = 100.0;
 
             var connectionConfig = new ConnectionConfig();
 
-            var sender = new Connection(DefaultAllocator, messageFactory, connectionConfig, time);
-            var receiver = new Connection(DefaultAllocator, messageFactory, connectionConfig, time);
+            using var sender = new Connection(GetDefaultAllocator(), messageFactory, connectionConfig, time);
+            using var receiver = new Connection(GetDefaultAllocator(), messageFactory, connectionConfig, time);
 
             const int NumMessagesSent = 32;
 
@@ -1076,7 +1166,7 @@ public static class test
                 check(message != null);
                 message.sequence = i;
                 var blockSize = 1 + ((i * 901) % 3333);
-                var blockData = new byte[blockSize];
+                var blockData = YOJIMBO_ALLOCATE(messageFactory.Allocator, blockSize);
                 for (var j = 0; j < blockSize; ++j)
                     blockData[j] = (byte)(i + j);
                 message.AttachBlock(messageFactory.Allocator, blockData, blockSize);
@@ -1139,15 +1229,15 @@ public static class test
 
         static void test_connection_reliable_ordered_messages_and_blocks()
         {
-            var messageFactory = new TestMessageFactory(DefaultAllocator);
+            using var messageFactory = new TestMessageFactory(GetDefaultAllocator());
 
             var time = 100.0;
 
             var connectionConfig = new ConnectionConfig();
 
-            var sender = new Connection(DefaultAllocator, messageFactory, connectionConfig, time);
+            using var sender = new Connection(GetDefaultAllocator(), messageFactory, connectionConfig, time);
 
-            var receiver = new Connection(DefaultAllocator, messageFactory, connectionConfig, time);
+            using var receiver = new Connection(GetDefaultAllocator(), messageFactory, connectionConfig, time);
 
             const int NumMessagesSent = 32;
 
@@ -1165,7 +1255,7 @@ public static class test
                     check(message != null);
                     message.sequence = i;
                     var blockSize = 1 + ((i * 901) % 3333);
-                    var blockData = new byte[blockSize];
+                    var blockData = YOJIMBO_ALLOCATE(messageFactory.Allocator, blockSize);
                     for (var j = 0; j < blockSize; ++j)
                         blockData[j] = (byte)(i + j);
                     message.AttachBlock(messageFactory.Allocator, blockData, blockSize);
@@ -1247,7 +1337,7 @@ public static class test
 
             var time = 100.0;
 
-            var messageFactory = new TestMessageFactory(DefaultAllocator);
+            using var messageFactory = new TestMessageFactory(GetDefaultAllocator());
 
             var connectionConfig = new ConnectionConfig();
             connectionConfig.numChannels = NumChannels;
@@ -1256,9 +1346,9 @@ public static class test
             connectionConfig.channel[1].type = ChannelType.CHANNEL_TYPE_RELIABLE_ORDERED;
             connectionConfig.channel[1].maxMessagesPerPacket = 8;
 
-            var sender = new Connection(DefaultAllocator, messageFactory, connectionConfig, time);
+            using var sender = new Connection(GetDefaultAllocator(), messageFactory, connectionConfig, time);
 
-            var receiver = new Connection(DefaultAllocator, messageFactory, connectionConfig, time);
+            using var receiver = new Connection(GetDefaultAllocator(), messageFactory, connectionConfig, time);
 
             const int NumMessagesSent = 32;
 
@@ -1277,7 +1367,7 @@ public static class test
                         check(message != null);
                         message.sequence = i;
                         var blockSize = 1 + ((i * 901) % 3333);
-                        var blockData = new byte[blockSize];
+                        var blockData = YOJIMBO_ALLOCATE(messageFactory.Allocator, blockSize);
                         for (var j = 0; j < blockSize; ++j)
                             blockData[j] = (byte)(i + j);
                         message.AttachBlock(messageFactory.Allocator, blockData, blockSize);
@@ -1368,7 +1458,7 @@ public static class test
 
         static void test_connection_unreliable_unordered_messages()
         {
-            var messageFactory = new TestMessageFactory(DefaultAllocator);
+            using var messageFactory = new TestMessageFactory(GetDefaultAllocator());
 
             var time = 100.0;
 
@@ -1376,8 +1466,8 @@ public static class test
             connectionConfig.numChannels = 1;
             connectionConfig.channel[0].type = ChannelType.CHANNEL_TYPE_UNRELIABLE_UNORDERED;
 
-            var sender = new Connection(DefaultAllocator, messageFactory, connectionConfig, time);
-            var receiver = new Connection(DefaultAllocator, messageFactory, connectionConfig, time);
+            using var sender = new Connection(GetDefaultAllocator(), messageFactory, connectionConfig, time);
+            using var receiver = new Connection(GetDefaultAllocator(), messageFactory, connectionConfig, time);
 
             const int SenderPort = 10000;
             const int ReceiverPort = 10001;
@@ -1432,7 +1522,7 @@ public static class test
 
         static void test_connection_unreliable_unordered_blocks()
         {
-            var messageFactory = new TestMessageFactory(DefaultAllocator);
+            using var messageFactory = new TestMessageFactory(GetDefaultAllocator());
 
             var time = 100.0;
 
@@ -1440,9 +1530,9 @@ public static class test
             connectionConfig.numChannels = 1;
             connectionConfig.channel[0].type = ChannelType.CHANNEL_TYPE_UNRELIABLE_UNORDERED;
 
-            var sender = new Connection(DefaultAllocator, messageFactory, connectionConfig, time);
+            using var sender = new Connection(GetDefaultAllocator(), messageFactory, connectionConfig, time);
 
-            var receiver = new Connection(DefaultAllocator, messageFactory, connectionConfig, time);
+            using var receiver = new Connection(GetDefaultAllocator(), messageFactory, connectionConfig, time);
 
             const int SenderPort = 10000;
             const int ReceiverPort = 10001;
@@ -1460,7 +1550,7 @@ public static class test
                 check(message != null);
                 message.sequence = j;
                 var blockSize = 1 + (j * 7);
-                var blockData = new byte[blockSize];
+                var blockData = YOJIMBO_ALLOCATE(messageFactory.Allocator, blockSize);
                 for (var k = 0; k < blockSize; ++k)
                     blockData[k] = (byte)(j + k);
                 message.AttachBlock(messageFactory.Allocator, blockData, blockSize);
@@ -1695,11 +1785,11 @@ public static class test
             config.channel[0].maxBlockSize = 1024;
             config.channel[0].blockFragmentSize = 200;
 
-            var client = new Client(DefaultAllocator, clientAddress, config, shared.adapter, time);
+            var client = new Client(GetDefaultAllocator(), clientAddress, config, shared.adapter, time);
 
             var privateKey = new byte[KeyBytes];
 
-            var server = new Server(DefaultAllocator, privateKey, serverAddress, config, shared.adapter, time);
+            var server = new Server(GetDefaultAllocator(), privateKey, serverAddress, config, shared.adapter, time);
 
             server.Start(MaxClients);
 
@@ -1798,7 +1888,7 @@ public static class test
         {
             for (var i = 0; i < numClients; ++i)
             {
-                clients[i] = new Client(DefaultAllocator, address, config, _adapter, time);
+                clients[i] = new Client(GetDefaultAllocator(), address, config, _adapter, time);
             }
         }
 
@@ -1860,7 +1950,7 @@ public static class test
 
             var privateKey = new byte[KeyBytes];
 
-            var server = new Server(DefaultAllocator, privateKey, serverAddress, config, shared.adapter, time);
+            var server = new Server(GetDefaultAllocator(), privateKey, serverAddress, config, shared.adapter, time);
 
             int[] numClients = { 3, 5, 1, 32, 5 };
 
@@ -1972,11 +2062,11 @@ public static class test
 
             var privateKey = new byte[KeyBytes];
 
-            var server = new Server(DefaultAllocator, privateKey, serverAddress, config, shared.adapter, time);
+            var server = new Server(GetDefaultAllocator(), privateKey, serverAddress, config, shared.adapter, time);
 
             server.Start(MaxClients);
 
-            var client = new Client(DefaultAllocator, clientAddress, config, shared.adapter, time);
+            var client = new Client(GetDefaultAllocator(), clientAddress, config, shared.adapter, time);
 
             client.InsecureConnect(privateKey, clientId, serverAddress);
 
@@ -2044,11 +2134,11 @@ public static class test
 
             var privateKey = new byte[KeyBytes];
 
-            var server = new Server(DefaultAllocator, privateKey, serverAddress, config, shared.adapter, time);
+            var server = new Server(GetDefaultAllocator(), privateKey, serverAddress, config, shared.adapter, time);
 
             server.Start(MaxClients);
 
-            var client = new Client(DefaultAllocator, clientAddress, config, shared.adapter, time);
+            var client = new Client(GetDefaultAllocator(), clientAddress, config, shared.adapter, time);
 
             client.InsecureConnect(privateKey, clientId, serverAddress);
 
@@ -2101,7 +2191,6 @@ public static class test
 
         static void test_client_server_message_exhaust_stream_allocator()
         {
-            return;
             const ulong clientId = 1UL;
 
             var clientAddress = new Address("0.0.0.0", shared.ClientPort);
@@ -2118,11 +2207,11 @@ public static class test
 
             var privateKey = new byte[KeyBytes];
 
-            var server = new Server(DefaultAllocator, privateKey, serverAddress, config, shared.adapter, time);
+            var server = new Server(GetDefaultAllocator(), privateKey, serverAddress, config, shared.adapter, time);
 
             server.Start(MaxClients);
 
-            var client = new Client(DefaultAllocator, clientAddress, config, shared.adapter, time);
+            var client = new Client(GetDefaultAllocator(), clientAddress, config, shared.adapter, time);
 
             client.InsecureConnect(privateKey, clientId, serverAddress);
 
@@ -2192,11 +2281,11 @@ public static class test
 
             var privateKey = new byte[KeyBytes];
 
-            var server = new Server(DefaultAllocator, privateKey, serverAddress, config, shared.adapter, time);
+            var server = new Server(GetDefaultAllocator(), privateKey, serverAddress, config, shared.adapter, time);
 
             server.Start(MaxClients);
 
-            var client = new Client(DefaultAllocator, clientAddress, config, shared.adapter, time);
+            var client = new Client(GetDefaultAllocator(), clientAddress, config, shared.adapter, time);
 
             client.InsecureConnect(privateKey, clientId, serverAddress);
 
@@ -2257,7 +2346,7 @@ public static class test
             config.channel[1].packetBudget = -1;
 
             var privateKey = new byte[KeyBytes];
-            var server = new Server(DefaultAllocator, privateKey, new Address("127.0.0.1", shared.ServerPort), config, shared.adapter, time);
+            var server = new Server(GetDefaultAllocator(), privateKey, new Address("127.0.0.1", shared.ServerPort), config, shared.adapter, time);
 
             server.Start(MaxClients);
             check(server.IsRunning);
@@ -2265,7 +2354,7 @@ public static class test
             var clientId = 0UL;
             random_bytes(ref clientId, 8);
 
-            var client = new Client(DefaultAllocator, new Address("0.0.0.0"), config, shared.adapter, time);
+            var client = new Client(GetDefaultAllocator(), new Address("0.0.0.0"), config, shared.adapter, time);
 
             var serverAddress = new Address("127.0.0.1", shared.ServerPort);
 
@@ -2336,13 +2425,13 @@ public static class test
         // Github Issue #77
         static void test_single_message_type_reliable()
         {
-            var messageFactory = new SingleTestMessageFactory(DefaultAllocator);
+            using var messageFactory = new SingleTestMessageFactory(GetDefaultAllocator());
 
             var time = 100.0;
 
             var connectionConfig = new ConnectionConfig();
-            var sender = new Connection(DefaultAllocator, messageFactory, connectionConfig, time);
-            var receiver = new Connection(DefaultAllocator, messageFactory, connectionConfig, time);
+            using var sender = new Connection(GetDefaultAllocator(), messageFactory, connectionConfig, time);
+            using var receiver = new Connection(GetDefaultAllocator(), messageFactory, connectionConfig, time);
 
             const int NumMessagesSent = 64;
 
@@ -2398,14 +2487,14 @@ public static class test
 
         static void test_single_message_type_reliable_blocks()
         {
-            var messageFactory = new SingleBlockTestMessageFactory(DefaultAllocator);
+            using var messageFactory = new SingleBlockTestMessageFactory(GetDefaultAllocator());
 
             var time = 100.0;
 
             var connectionConfig = new ConnectionConfig();
 
-            var sender = new Connection(DefaultAllocator, messageFactory, connectionConfig, time);
-            var receiver = new Connection(DefaultAllocator, messageFactory, connectionConfig, time);
+            using var sender = new Connection(GetDefaultAllocator(), messageFactory, connectionConfig, time);
+            using var receiver = new Connection(GetDefaultAllocator(), messageFactory, connectionConfig, time);
 
             const int NumMessagesSent = 32;
 
@@ -2415,7 +2504,7 @@ public static class test
                 check(message != null);
                 message.sequence = i;
                 var blockSize = 1 + ((i * 901) % 3333);
-                var blockData = new byte[blockSize];
+                var blockData = YOJIMBO_ALLOCATE(messageFactory.Allocator, blockSize);
                 for (var j = 0; j < blockSize; ++j)
                     blockData[j] = (byte)(i + j);
                 message.AttachBlock(messageFactory.Allocator, blockData, blockSize);
@@ -2478,7 +2567,7 @@ public static class test
 
         static void test_single_message_type_unreliable()
         {
-            var messageFactory = new SingleTestMessageFactory(DefaultAllocator);
+            using var messageFactory = new SingleTestMessageFactory(GetDefaultAllocator());
 
             var time = 100.0;
 
@@ -2486,8 +2575,8 @@ public static class test
             connectionConfig.numChannels = 1;
             connectionConfig.channel[0].type = ChannelType.CHANNEL_TYPE_UNRELIABLE_UNORDERED;
 
-            var sender = new Connection(DefaultAllocator, messageFactory, connectionConfig, time);
-            var receiver = new Connection(DefaultAllocator, messageFactory, connectionConfig, time);
+            using var sender = new Connection(GetDefaultAllocator(), messageFactory, connectionConfig, time);
+            using var receiver = new Connection(GetDefaultAllocator(), messageFactory, connectionConfig, time);
 
             const int SenderPort = 10000;
             const int ReceiverPort = 10001;
@@ -2755,7 +2844,7 @@ public static class test
             // A packet that is exactly a reliable header reaches Connection.ProcessPacket with
             // zero payload bytes. That must be rejected cleanly, not fed to the bit reader (50d2ae0).
 
-            var messageFactory = new TestMessageFactory(DefaultAllocator);
+            using var messageFactory = new TestMessageFactory(GetDefaultAllocator());
 
             var time = 100.0;
 
@@ -2763,7 +2852,7 @@ public static class test
             connectionConfig.numChannels = 1;
             connectionConfig.channel[0].type = ChannelType.CHANNEL_TYPE_RELIABLE_ORDERED;
 
-            var connection = new Connection(DefaultAllocator, messageFactory, connectionConfig, time);
+            using var connection = new Connection(GetDefaultAllocator(), messageFactory, connectionConfig, time);
 
             var buffer = new byte[1];
 
@@ -2775,13 +2864,13 @@ public static class test
         {
             // Production receive hands ProcessPacket an exact payload allocation (1d59976). The C# BitReader
             // bounds checks its loads, so this must work without the +8 slack copy upstream needs.
-            var messageFactory = new TestMessageFactory(DefaultAllocator);
+            using var messageFactory = new TestMessageFactory(GetDefaultAllocator());
             var time = 100.0;
             var connectionConfig = new ConnectionConfig();
             connectionConfig.numChannels = 1;
             connectionConfig.channel[0].type = ChannelType.CHANNEL_TYPE_RELIABLE_ORDERED;
-            var sender = new Connection(DefaultAllocator, messageFactory, connectionConfig, time);
-            var receiver = new Connection(DefaultAllocator, messageFactory, connectionConfig, time);
+            using var sender = new Connection(GetDefaultAllocator(), messageFactory, connectionConfig, time);
+            using var receiver = new Connection(GetDefaultAllocator(), messageFactory, connectionConfig, time);
 
             var message = (TestMessage)messageFactory.CreateMessage((int)TestMessageType.TEST_MESSAGE);
             check(message != null);
@@ -2808,7 +2897,7 @@ public static class test
             // are serialized inline). A peer that puts a block fragment on that channel index must be
             // rejected as a serialize failure (50d2ae0).
 
-            var messageFactory = new TestMessageFactory(DefaultAllocator);
+            using var messageFactory = new TestMessageFactory(GetDefaultAllocator());
 
             var time = 100.0;
 
@@ -2822,14 +2911,14 @@ public static class test
             receiverConfig.numChannels = 1;
             receiverConfig.channel[0].type = ChannelType.CHANNEL_TYPE_UNRELIABLE_UNORDERED;
 
-            var sender = new Connection(DefaultAllocator, messageFactory, senderConfig, time);
-            var receiver = new Connection(DefaultAllocator, messageFactory, receiverConfig, time);
+            using var sender = new Connection(GetDefaultAllocator(), messageFactory, senderConfig, time);
+            using var receiver = new Connection(GetDefaultAllocator(), messageFactory, receiverConfig, time);
 
             var message = (TestBlockMessage)messageFactory.CreateMessage((int)TestMessageType.TEST_BLOCK_MESSAGE);
             check(message != null);
             message.sequence = 0;
             const int blockSize = 64;
-            var blockData = new byte[blockSize];
+            var blockData = YOJIMBO_ALLOCATE(messageFactory.Allocator, blockSize);
             for (var i = 0; i < blockSize; ++i)
                 blockData[i] = (byte)i;
             message.AttachBlock(messageFactory.Allocator, blockData, blockSize);
@@ -2862,7 +2951,7 @@ public static class test
             // A peer sends a block fragment on a reliable-ordered channel, but the receiver has
             // blocks disabled on that channel. The read must fail cleanly (b2fccb2).
 
-            var messageFactory = new TestMessageFactory(DefaultAllocator);
+            using var messageFactory = new TestMessageFactory(GetDefaultAllocator());
 
             var time = 100.0;
 
@@ -2875,14 +2964,14 @@ public static class test
             receiverConfig.channel[0].type = ChannelType.CHANNEL_TYPE_RELIABLE_ORDERED;
             receiverConfig.channel[0].disableBlocks = true;
 
-            var sender = new Connection(DefaultAllocator, messageFactory, senderConfig, time);
-            var receiver = new Connection(DefaultAllocator, messageFactory, receiverConfig, time);
+            using var sender = new Connection(GetDefaultAllocator(), messageFactory, senderConfig, time);
+            using var receiver = new Connection(GetDefaultAllocator(), messageFactory, receiverConfig, time);
 
             var message = (TestBlockMessage)messageFactory.CreateMessage((int)TestMessageType.TEST_BLOCK_MESSAGE);
             check(message != null);
             message.sequence = 0;
             const int blockSize = 2000;
-            var blockData = new byte[blockSize];
+            var blockData = YOJIMBO_ALLOCATE(messageFactory.Allocator, blockSize);
             for (var i = 0; i < blockSize; ++i)
                 blockData[i] = (byte)i;
             message.AttachBlock(messageFactory.Allocator, blockData, blockSize);
@@ -2943,7 +3032,7 @@ public static class test
             // not a multiple of blockFragmentSize. The receive buffer is maxBlockSize bytes, so the fragment must be
             // rejected before the copy (d3d4f33) rather than overflowing (C++) or throwing (C#).
 
-            var messageFactory = new TestMessageFactory(DefaultAllocator);
+            using var messageFactory = new TestMessageFactory(GetDefaultAllocator());
 
             var time = 100.0;
 
@@ -2958,7 +3047,7 @@ public static class test
 
             check(maxFragmentsPerBlock == 3);
 
-            var receiver = new Connection(DefaultAllocator, messageFactory, config, time);
+            using var receiver = new Connection(GetDefaultAllocator(), messageFactory, config, time);
 
             // messageId=0 (== expected receive sequence), final fragment, full blockFragmentSize payload.
             var numFragments = maxFragmentsPerBlock;
@@ -2984,7 +3073,7 @@ public static class test
             // A peer sends more channel data than the receiver's configured packetBudget. On read this
             // used to trip the YOJIMBO_DEBUG_MESSAGE_BUDGET assert, a remote crash in debug builds (1b6bec0).
 
-            var messageFactory = new TestMessageFactory(DefaultAllocator);
+            using var messageFactory = new TestMessageFactory(GetDefaultAllocator());
 
             var time = 100.0;
 
@@ -2997,8 +3086,8 @@ public static class test
             receiverConfig.channel[0].type = ChannelType.CHANNEL_TYPE_RELIABLE_ORDERED;
             receiverConfig.channel[0].packetBudget = 32;
 
-            var sender = new Connection(DefaultAllocator, messageFactory, senderConfig, time);
-            var receiver = new Connection(DefaultAllocator, messageFactory, receiverConfig, time);
+            using var sender = new Connection(GetDefaultAllocator(), messageFactory, senderConfig, time);
+            using var receiver = new Connection(GetDefaultAllocator(), messageFactory, receiverConfig, time);
 
             const int NumMessages = 64;
             for (var i = 0; i < NumMessages; ++i)
@@ -3041,12 +3130,12 @@ public static class test
 
             check(connectionConfig.channel[0].MaxFragmentsPerBlock == 3);
 
-            var messageFactory = new TestMessageFactory(DefaultAllocator);
+            using var messageFactory = new TestMessageFactory(GetDefaultAllocator());
 
             var time = 100.0;
 
-            var sender = new Connection(DefaultAllocator, messageFactory, connectionConfig, time);
-            var receiver = new Connection(DefaultAllocator, messageFactory, connectionConfig, time);
+            using var sender = new Connection(GetDefaultAllocator(), messageFactory, connectionConfig, time);
+            using var receiver = new Connection(GetDefaultAllocator(), messageFactory, connectionConfig, time);
 
             const int NumMessagesSent = 8;
             var BlockSize = connectionConfig.channel[0].maxBlockSize;
@@ -3056,7 +3145,7 @@ public static class test
                 var message = (TestBlockMessage)messageFactory.CreateMessage((int)TestMessageType.TEST_BLOCK_MESSAGE);
                 check(message != null);
                 message.sequence = (ushort)i;
-                var blockData = new byte[BlockSize];
+                var blockData = YOJIMBO_ALLOCATE(messageFactory.Allocator, BlockSize);
                 for (var j = 0; j < BlockSize; ++j)
                     blockData[j] = (byte)(i + j);
                 message.AttachBlock(messageFactory.Allocator, blockData, BlockSize);
@@ -3103,13 +3192,173 @@ public static class test
             check(numMessagesReceived == NumMessagesSent);
         }
 
+        static void test_connection_reliable_message_alloc_failure()
+        {
+            // Regression: on the send path, GetMessagePacketData allocated the message-pointer array
+            // without checking for null and then wrote through it - a crash on allocator exhaustion.
+            // Arm the allocator to fail that first allocation inside GeneratePacket and verify we neither
+            // crash nor leak (the queued reliable message is retained and freed at teardown).
+            var allocator = new ArmableAllocator();
+            {
+                using var messageFactory = new TestMessageFactory(allocator);
+
+                var config = new ConnectionConfig();
+                config.numChannels = 1;
+                config.channel[0].type = ChannelType.CHANNEL_TYPE_RELIABLE_ORDERED;
+
+                {
+                    using var connection = new Connection(allocator, messageFactory, config, 100.0);
+
+                    var message = messageFactory.CreateMessage((int)TestMessageType.TEST_MESSAGE);
+                    check(message != null);
+                    connection.SendMessage(0, message);
+
+                    var packetData = new byte[4096];
+
+                    allocator.Arm(0);     // fail the first allocation inside GeneratePacket (message array)
+                    connection.GeneratePacket(null, 0, packetData, packetData.Length, out var packetBytes);
+                    allocator.Disarm();
+                }
+            }
+            check(allocator.Outstanding == 0);   // no leak across teardown
+            allocator.Dispose();
+        }
+
+        static void test_connection_unreliable_message_alloc_failure()
+        {
+            // Regression: the unreliable channel's GetPacketData allocated the message-pointer array
+            // without a null check and then wrote through it. The messages had already been popped off
+            // the send queue, so a failure crashed (null deref) and would have leaked the popped
+            // messages. Arm the allocator to fail that allocation and verify no crash and no leak.
+            var allocator = new ArmableAllocator();
+            {
+                using var messageFactory = new TestMessageFactory(allocator);
+
+                var config = new ConnectionConfig();
+                config.numChannels = 1;
+                config.channel[0].type = ChannelType.CHANNEL_TYPE_UNRELIABLE_UNORDERED;
+
+                {
+                    using var connection = new Connection(allocator, messageFactory, config, 100.0);
+
+                    for (var i = 0; i < 4; ++i)
+                    {
+                        var message = messageFactory.CreateMessage((int)TestMessageType.TEST_MESSAGE);
+                        check(message != null);
+                        connection.SendMessage(0, message);
+                    }
+
+                    var packetData = new byte[4096];
+
+                    allocator.Arm(0);     // fail the message-pointer array allocation in GetPacketData
+                    connection.GeneratePacket(null, 0, packetData, packetData.Length, out var packetBytes);
+                    allocator.Disarm();
+                }
+            }
+            check(allocator.Outstanding == 0);   // popped messages released, nothing leaked
+            allocator.Dispose();
+        }
+
+        static void test_connection_generate_packet_channel_data_alloc_failure()
+        {
+            // Regression: when AllocateChannelData failed, GeneratePacket returned without freeing the
+            // per-channel packet data GetPacketData had already populated (acquired message references
+            // and the allocated message-pointer array), leaking them. Arm the allocator so the message
+            // array allocation succeeds but the subsequent channel-data allocation fails, and verify
+            // nothing leaks.
+            var allocator = new ArmableAllocator();
+            {
+                using var messageFactory = new TestMessageFactory(allocator);
+
+                var config = new ConnectionConfig();
+                config.numChannels = 1;
+                config.channel[0].type = ChannelType.CHANNEL_TYPE_RELIABLE_ORDERED;
+
+                {
+                    using var connection = new Connection(allocator, messageFactory, config, 100.0);
+
+                    var message = messageFactory.CreateMessage((int)TestMessageType.TEST_MESSAGE);
+                    check(message != null);
+                    connection.SendMessage(0, message);
+
+                    var packetData = new byte[4096];
+
+                    allocator.Arm(1);     // 1st alloc (message array) succeeds, 2nd (channel data) fails
+                    var result = connection.GeneratePacket(null, 0, packetData, packetData.Length, out var packetBytes);
+                    allocator.Disarm();
+                    check(!result);       // the channel-data allocation failure fails the generate
+                }
+            }
+            check(allocator.Outstanding == 0);   // no leak across teardown
+            allocator.Dispose();
+        }
+
+        static void test_message_factory_create_message_alloc_failure()
+        {
+            // Regression: YOJIMBO_NEW used to run the constructor on a null pointer when the allocation
+            // failed (undefined behavior / crash) before CreateMessage's null check. CreateMessage must
+            // return null cleanly on allocator exhaustion and flag the factory.
+            var allocator = new ArmableAllocator();
+            {
+                using var factory = new TestMessageFactory(allocator);
+                allocator.Arm(0);     // fail the next allocation (the message object)
+                var message = factory.CreateMessage((int)TestMessageType.TEST_MESSAGE);
+                allocator.Disarm();
+                check(message == null);
+                check(factory.ErrorLevel == MessageFactoryErrorLevel.MESSAGE_FACTORY_ERROR_FAILED_TO_ALLOCATE_MESSAGE);
+            }
+            check(allocator.Outstanding == 0);
+            allocator.Dispose();
+        }
+
+        static void test_connection_process_packet_channel_data_alloc_failure()
+        {
+            // Regression: on the read path, if AllocateChannelData failed, numChannelEntries had already
+            // been read from the wire, so the ConnectionPacket destructor iterated a null channelEntry
+            // array (crash). Feed a valid packet to a receiver whose allocator fails the channel-data
+            // allocation, and verify the read fails cleanly without crashing or leaking.
+            var senderAlloc = new ArmableAllocator();
+            var receiverAlloc = new ArmableAllocator();
+            {
+                using var senderFactory = new TestMessageFactory(senderAlloc);
+                using var receiverFactory = new TestMessageFactory(receiverAlloc);
+
+                var config = new ConnectionConfig();
+                config.numChannels = 1;
+                config.channel[0].type = ChannelType.CHANNEL_TYPE_RELIABLE_ORDERED;
+
+                {
+                    using var sender = new Connection(senderAlloc, senderFactory, config, 100.0);
+                    using var receiver = new Connection(receiverAlloc, receiverFactory, config, 100.0);
+
+                    var message = senderFactory.CreateMessage((int)TestMessageType.TEST_MESSAGE);
+                    check(message != null);
+                    sender.SendMessage(0, message);
+
+                    var packetData = new byte[4096];
+                    check(sender.GeneratePacket(null, 0, packetData, packetData.Length, out var packetBytes));
+                    check(packetBytes > 0);
+
+                    // C#: the first allocation in the read is the channel data (upstream allocates a padded copy of the packet first)
+                    receiverAlloc.Arm(0);     // fail the channel-data allocation in the connection-packet read
+                    var ok = receiver.ProcessPacket(null, 0, packetData, packetBytes);
+                    receiverAlloc.Disarm();
+                    check(!ok);               // read fails cleanly rather than crashing in the destructor
+                }
+            }
+            check(senderAlloc.Outstanding == 0);
+            check(receiverAlloc.Outstanding == 0);
+            senderAlloc.Dispose();
+            receiverAlloc.Dispose();
+        }
+
         static void test_connection_message_refcounts()
         {
             // C# regression: ConnectionPacket was never disposed, so the references packets take on messages
             // (C++: released by ~ConnectionPacket) were never released. Every sent message must end at refcount
             // zero once acked (reliable) or written (unreliable), and every received message once released.
 
-            var messageFactory = new TestMessageFactory(DefaultAllocator);
+            var messageFactory = new TestMessageFactory(GetDefaultAllocator());
 
             var time = 100.0;
 
@@ -3118,8 +3367,8 @@ public static class test
             connectionConfig.channel[0].type = ChannelType.CHANNEL_TYPE_RELIABLE_ORDERED;
             connectionConfig.channel[1].type = ChannelType.CHANNEL_TYPE_UNRELIABLE_UNORDERED;
 
-            var sender = new Connection(DefaultAllocator, messageFactory, connectionConfig, time);
-            var receiver = new Connection(DefaultAllocator, messageFactory, connectionConfig, time);
+            var sender = new Connection(GetDefaultAllocator(), messageFactory, connectionConfig, time);
+            var receiver = new Connection(GetDefaultAllocator(), messageFactory, connectionConfig, time);
 
             const int NumMessages = 32;
 
@@ -3131,7 +3380,7 @@ public static class test
                 if (i == NumMessages / 2)
                 {
                     var blockMessage = (TestBlockMessage)messageFactory.CreateMessage((int)TestMessageType.TEST_BLOCK_MESSAGE);
-                    var blockData = new byte[3000];
+                    var blockData = YOJIMBO_ALLOCATE(messageFactory.Allocator, 3000);
                     blockMessage.AttachBlock(messageFactory.Allocator, blockData, blockData.Length);
                     message = blockMessage;
                 }
@@ -3195,7 +3444,7 @@ public static class test
             // Every serialize_* failure must propagate. A truncated packet must be refused, never throw or be
             // partially applied, and random garbage must never crash the reader.
 
-            var messageFactory = new TestMessageFactory(DefaultAllocator);
+            using var messageFactory = new TestMessageFactory(GetDefaultAllocator());
 
             var time = 100.0;
 
@@ -3205,7 +3454,7 @@ public static class test
             connectionConfig.channel[1].type = ChannelType.CHANNEL_TYPE_UNRELIABLE_UNORDERED;
             connectionConfig.channel[2].type = ChannelType.CHANNEL_TYPE_RELIABLE_ORDERED;
 
-            var sender = new Connection(DefaultAllocator, messageFactory, connectionConfig, time);
+            var sender = new Connection(GetDefaultAllocator(), messageFactory, connectionConfig, time);
 
             for (var i = 0; i < 16; ++i)
             {
@@ -3219,14 +3468,14 @@ public static class test
             check(packetBytes > 0);
 
             {
-                var receiver = new Connection(DefaultAllocator, messageFactory, connectionConfig, time);
+                var receiver = new Connection(GetDefaultAllocator(), messageFactory, connectionConfig, time);
                 check(receiver.ProcessPacket(null, 0, packetData, packetBytes));
                 receiver.Dispose();
             }
 
             for (var truncated = 1; truncated < packetBytes; ++truncated)
             {
-                var receiver = new Connection(DefaultAllocator, messageFactory, connectionConfig, time);
+                var receiver = new Connection(GetDefaultAllocator(), messageFactory, connectionConfig, time);
                 var copy = new byte[truncated];
                 Buffer.BlockCopy(packetData, 0, copy, 0, truncated);
                 // either the packet framing fails (READ_PACKET_FAILED) or a message body fails, which puts the channel
@@ -3240,7 +3489,7 @@ public static class test
             var garbage = new byte[256];
             for (var i = 0; i < 2000; ++i)
             {
-                var receiver = new Connection(DefaultAllocator, messageFactory, connectionConfig, time);
+                var receiver = new Connection(GetDefaultAllocator(), messageFactory, connectionConfig, time);
                 var bytes = 1 + random_int(0, garbage.Length - 1);
                 for (var j = 0; j < bytes; ++j)
                     garbage[j] = (byte)random_int(0, 255);
@@ -3262,7 +3511,7 @@ public static class test
             // 16feb21: a message that can never fit into a packet is rejected with CHANNEL_ERROR_MESSAGE_TOO_LARGE
             // instead of blocking the head of the reliable send queue forever (#185). It also asserts in debug.
 
-            var messageFactory = new TestMessageFactory(DefaultAllocator);
+            using var messageFactory = new TestMessageFactory(GetDefaultAllocator());
 
             var time = 100.0;
 
@@ -3278,13 +3527,14 @@ public static class test
             assert_function = (condition, function, file, line) => { asserted++; throw new AssertException(condition); };
             try
             {
-                var connection = new Connection(DefaultAllocator, messageFactory, connectionConfig, time);
+                using var connection = new Connection(GetDefaultAllocator(), messageFactory, connectionConfig, time);
 
                 // reliable: rejected in SendMessage
                 {
                     var message = (TestMessage)messageFactory.CreateMessage((int)TestMessageType.TEST_MESSAGE);
                     message.sequence = 1;
-                    try { connection.SendMessage(0, message); } catch (AssertException) { }
+                    // the assert throws before the channel releases the message, so release it here
+                    try { connection.SendMessage(0, message); } catch (AssertException) { messageFactory.ReleaseMessage(message); }
                 }
 
                 // unreliable: rejected when the packet is generated
@@ -3293,7 +3543,7 @@ public static class test
                     message.sequence = 1;
                     connection.SendMessage(1, message);
                     var packetData = new byte[connectionConfig.maxPacketSize];
-                    try { connection.GeneratePacket(null, 0, packetData, connectionConfig.maxPacketSize, out var packetBytes); } catch (AssertException) { }
+                    try { connection.GeneratePacket(null, 0, packetData, connectionConfig.maxPacketSize, out var packetBytes); } catch (AssertException) { messageFactory.ReleaseMessage(message); }
                 }
 
 #if DEBUG
@@ -3329,11 +3579,11 @@ public static class test
 
             var BlockSize = config.channel[0].blockFragmentSize * 2;
 
-            var client = new Client(DefaultAllocator, clientAddress, config, shared.adapter, time);
+            var client = new Client(GetDefaultAllocator(), clientAddress, config, shared.adapter, time);
 
             var privateKey = new byte[KeyBytes];
 
-            var server = new Server(DefaultAllocator, privateKey, serverAddress, config, shared.adapter, time);
+            var server = new Server(GetDefaultAllocator(), privateKey, serverAddress, config, shared.adapter, time);
 
             server.Start(MaxClients);
 
@@ -3451,11 +3701,11 @@ public static class test
             config.networkSimulator = true;
             config.channel[0].type = ChannelType.CHANNEL_TYPE_UNRELIABLE_UNORDERED;
 
-            var client = new Client(DefaultAllocator, clientAddress, config, shared.adapter, time);
+            var client = new Client(GetDefaultAllocator(), clientAddress, config, shared.adapter, time);
 
             var privateKey = new byte[KeyBytes];
 
-            var server = new Server(DefaultAllocator, privateKey, serverAddress, config, shared.adapter, time);
+            var server = new Server(GetDefaultAllocator(), privateKey, serverAddress, config, shared.adapter, time);
 
             server.Start(MaxClients);
 
@@ -3617,8 +3867,8 @@ public static class test
             var config = new ClientServerConfig();
             var privateKey = new byte[KeyBytes];
 
-            var server = new Server(DefaultAllocator, privateKey, new Address("127.0.0.1", shared.ServerPort), config, shared.adapter, 100.0);
-            var client = new Client(DefaultAllocator, new Address("0.0.0.0", 0), config, shared.adapter, 100.0);
+            var server = new Server(GetDefaultAllocator(), privateKey, new Address("127.0.0.1", shared.ServerPort), config, shared.adapter, 100.0);
+            var client = new Client(GetDefaultAllocator(), new Address("0.0.0.0", 0), config, shared.adapter, 100.0);
 
             check(server.Start(1));
             IServer serverInterface = server;
@@ -3662,8 +3912,58 @@ public static class test
             }
         }
 
+        // The number of startup allocations a sweep is allowed to walk before we call it a runaway. Well
+        // above the real counts (6 for a two-client server, 3 for a client) so the sweep terminates on a
+        // bug instead of looping forever.
+        const int MaxStartupAllocations = 64;
+
+        static void test_server_start_alloc_failure()
+        {
+            // YJ-01: BaseServer::Start guarded its allocations with yojimbo_assert, which compiles out
+            // under NDEBUG, so a release build bound references to failed allocations and ran on with a
+            // half-built server. Fail at allocation N for every N up to the first N that succeeds: each
+            // failure must return false, leave the server stopped, and free everything already taken.
+            var serverAddress = new Address("127.0.0.1", shared.ServerPort);
+
+            var config = new ClientServerConfig();
+
+            var privateKey = new byte[KeyBytes];
+
+            var n = 0;
+            for (; n < MaxStartupAllocations; ++n)
+            {
+                var allocator = new ArmableAllocator();
+                {
+                    var server = new Server(allocator, privateKey, serverAddress, config, shared.adapter, 100.0);
+                    allocator.Arm(n);
+                    var started = server.Start(2);
+                    allocator.Disarm();
+                    if (started)
+                    {
+                        check(server.IsRunning);
+                        server.Stop();
+                        check(!server.IsRunning);
+                        server.Dispose();
+                        check(allocator.Outstanding == 0);
+                        allocator.Dispose();
+                        break;
+                    }
+                    check(!server.IsRunning);           // no half-built server left behind
+                    check(server.MaxClients == 0);
+                    server.Dispose();
+                }
+                check(allocator.Outstanding == 0);   // everything already allocated was unwound
+                allocator.Dispose();
+            }
+            check(n > 0);                                 // the sweep really did force failures
+            check(n < MaxStartupAllocations);             // ...and a fully armed start eventually succeeds
+        }
+
         static void test_server_start_factory_failure()
         {
+            // Same contract for the adapter factory results, which no allocator arming can reach: a user
+            // allocator or message factory that fails to construct returns null and must be handled like
+            // an allocation failure rather than dereferenced.
             var serverAddress = new Address("127.0.0.1", shared.ServerPort);
             var config = new ClientServerConfig();
             var privateKey = new byte[KeyBytes];
@@ -3671,32 +3971,86 @@ public static class test
             // allocator index 0 is the global allocator, 1 and 2 are the two per-client allocators
             for (var n = 0; n < 3; ++n)
             {
-                var failingAdapter = new FailingFactoryAdapter();
-                failingAdapter.FailAllocatorAfter(n);
-                var server = new Server(DefaultAllocator, privateKey, serverAddress, config, failingAdapter, 100.0);
-                check(!server.Start(2));
-                check(!server.IsRunning);
-                server.Dispose();
+                var allocator = new ArmableAllocator();
+                {
+                    var failingAdapter = new FailingFactoryAdapter();
+                    failingAdapter.FailAllocatorAfter(n);
+                    var server = new Server(allocator, privateKey, serverAddress, config, failingAdapter, 100.0);
+                    check(!server.Start(2));
+                    check(!server.IsRunning);
+                    server.Dispose();
+                }
+                check(allocator.Outstanding == 0);
+                allocator.Dispose();
             }
 
             for (var n = 0; n < 2; ++n)
             {
-                var failingAdapter = new FailingFactoryAdapter();
-                failingAdapter.FailMessageFactoryAfter(n);
-                var server = new Server(DefaultAllocator, privateKey, serverAddress, config, failingAdapter, 100.0);
-                check(!server.Start(2));
-                check(!server.IsRunning);
-                server.Dispose();
+                var allocator = new ArmableAllocator();
+                {
+                    var failingAdapter = new FailingFactoryAdapter();
+                    failingAdapter.FailMessageFactoryAfter(n);
+                    var server = new Server(allocator, privateKey, serverAddress, config, failingAdapter, 100.0);
+                    check(!server.Start(2));
+                    check(!server.IsRunning);
+                    server.Dispose();
+                }
+                check(allocator.Outstanding == 0);
+                allocator.Dispose();
             }
 
             // and a server that failed to start can still start
             {
-                var server = new Server(DefaultAllocator, privateKey, serverAddress, config, shared.adapter, 100.0);
+                var server = new Server(GetDefaultAllocator(), privateKey, serverAddress, config, shared.adapter, 100.0);
                 check(server.Start(2));
                 check(server.IsRunning);
                 server.Stop();
                 server.Dispose();
             }
+        }
+
+        static void test_client_connect_alloc_failure()
+        {
+            // YJ-01 on the client side: BaseClient::CreateInternal bound a reference to *m_clientAllocator
+            // one line after allocating it, with no check in any build. Same sweep: every failure point
+            // returns false, leaves the client disconnected with an out-of-memory reason, and leaks
+            // nothing.
+            var clientAddress = new Address("0.0.0.0", 0);
+            var serverAddress = new Address("127.0.0.1", shared.ServerPort);
+
+            var config = new ClientServerConfig();
+
+            var privateKey = new byte[KeyBytes];
+
+            var n = 0;
+            for (; n < MaxStartupAllocations; ++n)
+            {
+                var allocator = new ArmableAllocator();
+                {
+                    var client = new Client(allocator, clientAddress, config, shared.adapter, 100.0);
+                    allocator.Arm(n);
+                    var connecting = client.InsecureConnect(privateKey, 1, serverAddress);
+                    allocator.Disarm();
+                    if (connecting)
+                    {
+                        check(client.IsConnecting);
+                        client.Disconnect();
+                        client.Dispose();
+                        check(allocator.Outstanding == 0);
+                        allocator.Dispose();
+                        break;
+                    }
+                    check(!client.IsConnecting);
+                    check(!client.IsConnected);
+                    check(client.ConnectionFailed);
+                    check(client.GetDisconnectReason() == ClientDisconnectReason.YOJIMBO_CLIENT_DISCONNECT_REASON_OUT_OF_MEMORY);
+                    client.Dispose();
+                }
+                check(allocator.Outstanding == 0);
+                allocator.Dispose();
+            }
+            check(n > 0);
+            check(n < MaxStartupAllocations);
         }
 
         static void test_client_connect_factory_failure()
@@ -3707,22 +4061,32 @@ public static class test
             var privateKey = new byte[KeyBytes];
 
             {
-                var failingAdapter = new FailingFactoryAdapter();
-                failingAdapter.FailAllocatorAfter(0);
-                var client = new Client(DefaultAllocator, clientAddress, config, failingAdapter, 100.0);
-                check(!client.InsecureConnect(privateKey, 1, serverAddress));
-                check(client.ConnectionFailed);
-                check(client.GetDisconnectReason() == ClientDisconnectReason.YOJIMBO_CLIENT_DISCONNECT_REASON_OUT_OF_MEMORY);
-                client.Dispose();
+                var allocator = new ArmableAllocator();
+                {
+                    var failingAdapter = new FailingFactoryAdapter();
+                    failingAdapter.FailAllocatorAfter(0);
+                    var client = new Client(allocator, clientAddress, config, failingAdapter, 100.0);
+                    check(!client.InsecureConnect(privateKey, 1, serverAddress));
+                    check(client.ConnectionFailed);
+                    check(client.GetDisconnectReason() == ClientDisconnectReason.YOJIMBO_CLIENT_DISCONNECT_REASON_OUT_OF_MEMORY);
+                    client.Dispose();
+                }
+                check(allocator.Outstanding == 0);
+                allocator.Dispose();
             }
 
             {
-                var failingAdapter = new FailingFactoryAdapter();
-                failingAdapter.FailMessageFactoryAfter(0);
-                var client = new Client(DefaultAllocator, clientAddress, config, failingAdapter, 100.0);
-                check(!client.InsecureConnect(privateKey, 1, serverAddress));
-                check(client.ConnectionFailed);
-                client.Dispose();
+                var allocator = new ArmableAllocator();
+                {
+                    var failingAdapter = new FailingFactoryAdapter();
+                    failingAdapter.FailMessageFactoryAfter(0);
+                    var client = new Client(allocator, clientAddress, config, failingAdapter, 100.0);
+                    check(!client.InsecureConnect(privateKey, 1, serverAddress));
+                    check(client.ConnectionFailed);
+                    client.Dispose();
+                }
+                check(allocator.Outstanding == 0);
+                allocator.Dispose();
             }
         }
 
@@ -3734,7 +4098,7 @@ public static class test
             var invalidAddress = new Address();             // ADDRESS_NONE -> "NONE" -> client_create fails
             check(!invalidAddress.IsValid);
 
-            var client = new Client(DefaultAllocator, invalidAddress, config, shared.adapter, 100.0);
+            var client = new Client(GetDefaultAllocator(), invalidAddress, config, shared.adapter, 100.0);
 
             var connectToken = new byte[ConnectTokenBytes];
 
@@ -3752,7 +4116,7 @@ public static class test
         {
             // Regression (997109d): IsLoopback must be safe to query in any state.
             var config = new ClientServerConfig();
-            var client = new Client(DefaultAllocator, new Address("0.0.0.0", shared.ClientPort), config, shared.adapter, 100.0);
+            var client = new Client(GetDefaultAllocator(), new Address("0.0.0.0", shared.ClientPort), config, shared.adapter, 100.0);
 
             check(!client.IsLoopback);
             check(client.ClientIndex == -1);
@@ -3790,7 +4154,7 @@ public static class test
 
             var privateKey = new byte[KeyBytes];
 
-            var server = new Server(DefaultAllocator, privateKey, serverAddress, config, shared.adapter, time);
+            var server = new Server(GetDefaultAllocator(), privateKey, serverAddress, config, shared.adapter, time);
 
             check(server.Start(MaxClients));
 
@@ -3801,7 +4165,7 @@ public static class test
 
             const int NumIterations = 1000;
 
-            var client = new Client(DefaultAllocator, clientAddress, config, shared.adapter, time);
+            var client = new Client(GetDefaultAllocator(), clientAddress, config, shared.adapter, time);
             Client[] clients = { client };
             Server[] servers = { server };
 
@@ -3860,7 +4224,7 @@ public static class test
             var config = new ClientServerConfig();
             var privateKey = new byte[KeyBytes];
 
-            var server = new Server(DefaultAllocator, privateKey, serverAddress, config, shared.adapter, time);
+            var server = new Server(GetDefaultAllocator(), privateKey, serverAddress, config, shared.adapter, time);
 
             server.Start(MaxClients);
 
@@ -3869,7 +4233,7 @@ public static class test
             for (var i = 0; i < MaxClients; ++i)
                 check(server.GetClientDisconnectReason(i) == ServerClientDisconnectReason.YOJIMBO_SERVER_CLIENT_DISCONNECT_REASON_NONE);
 
-            var client = new Client(DefaultAllocator, clientAddress, config, shared.adapter, time);
+            var client = new Client(GetDefaultAllocator(), clientAddress, config, shared.adapter, time);
             Client[] clients = { client };
             Server[] servers = { server };
 
@@ -3974,10 +4338,10 @@ public static class test
             var config = FailToSerializeConfig();
             var privateKey = new byte[KeyBytes];
 
-            var server = new Server(DefaultAllocator, privateKey, serverAddress, config, shared.adapter, time);
+            var server = new Server(GetDefaultAllocator(), privateKey, serverAddress, config, shared.adapter, time);
             server.Start(MaxClients);
 
-            var client = new Client(DefaultAllocator, clientAddress, config, shared.adapter, time);
+            var client = new Client(GetDefaultAllocator(), clientAddress, config, shared.adapter, time);
             client.InsecureConnect(privateKey, clientId, serverAddress);
             check(ConnectClient(ref time, client, server));
             check(server.NumConnectedClients == 1);
@@ -4020,10 +4384,10 @@ public static class test
             var config = new ClientServerConfig();
             var privateKey = new byte[KeyBytes];
 
-            var server = new Server(DefaultAllocator, privateKey, serverAddress, config, shared.adapter, time);
+            var server = new Server(GetDefaultAllocator(), privateKey, serverAddress, config, shared.adapter, time);
             server.Start(MaxClients);
 
-            var client = new Client(DefaultAllocator, clientAddress, config, shared.adapter, time);
+            var client = new Client(GetDefaultAllocator(), clientAddress, config, shared.adapter, time);
             Client[] clients = { client };
             Server[] servers = { server };
 
@@ -4110,10 +4474,10 @@ public static class test
             var config = FailToSerializeConfig();
             var privateKey = new byte[KeyBytes];
 
-            var server = new Server(DefaultAllocator, privateKey, serverAddress, config, shared.adapter, time);
+            var server = new Server(GetDefaultAllocator(), privateKey, serverAddress, config, shared.adapter, time);
             server.Start(MaxClients);
 
-            var client = new Client(DefaultAllocator, clientAddress, config, shared.adapter, time);
+            var client = new Client(GetDefaultAllocator(), clientAddress, config, shared.adapter, time);
             client.InsecureConnect(privateKey, clientId, serverAddress);
             check(ConnectClient(ref time, client, server));
             check(server.NumConnectedClients == 1);
@@ -4158,10 +4522,10 @@ public static class test
             var config = new ClientServerConfig();
             var privateKey = new byte[KeyBytes];
 
-            var server = new Server(DefaultAllocator, privateKey, serverAddress, config, shared.adapter, time);
+            var server = new Server(GetDefaultAllocator(), privateKey, serverAddress, config, shared.adapter, time);
             server.Start(MaxClients);
 
-            var client = new Client(DefaultAllocator, clientAddress, config, shared.adapter, time);
+            var client = new Client(GetDefaultAllocator(), clientAddress, config, shared.adapter, time);
             Client[] clients = { client };
             Server[] servers = { server };
 
@@ -4230,10 +4594,10 @@ public static class test
             var config = new ClientServerConfig();
             var privateKey = new byte[KeyBytes];
 
-            var server = new Server(DefaultAllocator, privateKey, serverAddress, config, shared.adapter, time);
+            var server = new Server(GetDefaultAllocator(), privateKey, serverAddress, config, shared.adapter, time);
             server.Start(MaxClients);
 
-            var client = new Client(DefaultAllocator, clientAddress, config, shared.adapter, time);
+            var client = new Client(GetDefaultAllocator(), clientAddress, config, shared.adapter, time);
             client.InsecureConnect(privateKey, clientId, serverAddress);
             check(ConnectClient(ref time, client, server));
 
@@ -4356,13 +4720,20 @@ public static class test
                 RUN_TEST("test_connection_reliable_block_fragment_on_disabled_blocks", test_connection_reliable_block_fragment_on_disabled_blocks);
                 RUN_TEST("test_connection_reliable_block_fragment_overflow", test_connection_reliable_block_fragment_overflow);
                 RUN_TEST("test_connection_reliable_over_budget_packet", test_connection_reliable_over_budget_packet);
+                RUN_TEST("test_connection_reliable_message_alloc_failure", test_connection_reliable_message_alloc_failure);
+                RUN_TEST("test_connection_unreliable_message_alloc_failure", test_connection_unreliable_message_alloc_failure);
+                RUN_TEST("test_connection_generate_packet_channel_data_alloc_failure", test_connection_generate_packet_channel_data_alloc_failure);
+                RUN_TEST("test_message_factory_create_message_alloc_failure", test_message_factory_create_message_alloc_failure);
+                RUN_TEST("test_connection_process_packet_channel_data_alloc_failure", test_connection_process_packet_channel_data_alloc_failure);
                 RUN_TEST("test_connection_message_refcounts", test_connection_message_refcounts);
                 RUN_TEST("test_connection_truncated_and_garbage_packets", test_connection_truncated_and_garbage_packets);
                 RUN_TEST("test_connection_message_too_large", test_connection_message_too_large);
 
                 RUN_TEST("test_channel_config_fragment_counts_without_overflow", test_channel_config_fragment_counts_without_overflow);
                 RUN_TEST("test_interface_methods_link", test_interface_methods_link);
+                RUN_TEST("test_server_start_alloc_failure", test_server_start_alloc_failure);
                 RUN_TEST("test_server_start_factory_failure", test_server_start_factory_failure);
+                RUN_TEST("test_client_connect_alloc_failure", test_client_connect_alloc_failure);
                 RUN_TEST("test_client_connect_factory_failure", test_client_connect_factory_failure);
                 RUN_TEST("test_client_connect_socket_failure_no_crash", test_client_connect_socket_failure_no_crash);
                 RUN_TEST("test_client_is_loopback_when_disconnected", test_client_is_loopback_when_disconnected);

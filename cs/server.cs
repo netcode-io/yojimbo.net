@@ -60,7 +60,7 @@ public static class server
 
         var serverAdapter = new ServerAdapter();
 
-        var server = new Server(DefaultAllocator, privateKey, new Address("127.0.0.1", shared.ServerPort), config, serverAdapter, time);
+        var server = new Server(GetDefaultAllocator(), privateKey, new Address("127.0.0.1", shared.ServerPort), config, serverAdapter, time);
 
         serverAdapter.server = server;
 

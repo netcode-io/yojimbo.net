@@ -164,9 +164,9 @@ public static class custom_packet_io_test
             var privateKey = new byte[KeyBytes];
             var time = 100.0;
 
-            var server = new Server(DefaultAllocator, privateKey, serverAddress, config, serverAdapter, time);
+            var server = new Server(GetDefaultAllocator(), privateKey, serverAddress, config, serverAdapter, time);
             server.Start(1);
-            var client = new Client(DefaultAllocator, clientAddress, config, clientAdapter, time);
+            var client = new Client(GetDefaultAllocator(), clientAddress, config, clientAdapter, time);
             client.InsecureConnect(privateKey, 1, serverAddress);
 
             for (var i = 0; i < 256 && !client.IsConnected; ++i)
@@ -237,9 +237,9 @@ public static class custom_packet_io_test
             var privateKey = new byte[KeyBytes];
             var time = 100.0;
 
-            var server = new Server(DefaultAllocator, privateKey, serverAddress, config, serverAdapter, time);
+            var server = new Server(GetDefaultAllocator(), privateKey, serverAddress, config, serverAdapter, time);
             server.Start(1);
-            var client = new Client(DefaultAllocator, clientAddress, config, clientAdapter, time);
+            var client = new Client(GetDefaultAllocator(), clientAddress, config, clientAdapter, time);
             client.InsecureConnect(privateKey, 1, serverAddress);
 
             for (var i = 0; i < 256 && !client.IsConnected; ++i)

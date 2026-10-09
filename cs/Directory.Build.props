@@ -6,6 +6,8 @@
   -->
   <PropertyGroup>
     <!-- override with -p:BuildRoot=/some/dir/ to keep parallel builds apart -->
+    <!-- the SDK defaults Configuration after this file is imported, so default it here or OutputPath below loses it when a single project is built -->
+    <Configuration Condition="'$(Configuration)' == ''">Debug</Configuration>
     <BuildRoot Condition="'$(BuildRoot)' == ''">$(MSBuildThisFileDirectory)</BuildRoot>
     <BaseIntermediateOutputPath>$(BuildRoot)obj/$(MSBuildProjectName)/</BaseIntermediateOutputPath>
     <OutputPath>$(BuildRoot)bin/$(MSBuildProjectName)/$(Configuration)/</OutputPath>

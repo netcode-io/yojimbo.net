@@ -60,18 +60,23 @@ namespace networkprotocol
             yojimbo.assert((65536 % config.messageSendQueueSize) == 0);
             yojimbo.assert((65536 % config.messageReceiveQueueSize) == 0);
 
-            m_sentPackets = new SequenceBuffer<SentPacketEntry>(m_allocator, m_config.sentPacketBufferSize);
-            m_messageSendQueue = new SequenceBuffer<MessageSendQueueEntry>(m_allocator, m_config.messageSendQueueSize);
-            m_messageReceiveQueue = new SequenceBuffer<MessageReceiveQueueEntry>(m_allocator, m_config.messageReceiveQueueSize);
-            m_sentPacketMessageIds = new ushort[m_config.sentPacketBufferSize][];
-            for (var i = 0; i < m_config.sentPacketBufferSize; ++i)
-                m_sentPacketMessageIds[i] = new ushort[m_config.maxMessagesPerPacket];
-            m_packetMessageIds = new ushort[m_config.maxMessagesPerPacket];
+            m_sentPackets = yojimbo.YOJIMBO_NEW(m_allocator, () => new SequenceBuffer<SentPacketEntry>(m_allocator, m_config.sentPacketBufferSize));
+            m_messageSendQueue = yojimbo.YOJIMBO_NEW(m_allocator, () => new SequenceBuffer<MessageSendQueueEntry>(m_allocator, m_config.messageSendQueueSize));
+            m_messageReceiveQueue = yojimbo.YOJIMBO_NEW(m_allocator, () => new SequenceBuffer<MessageReceiveQueueEntry>(m_allocator, m_config.messageReceiveQueueSize));
+            // C#: one block per sent packet entry instead of one flat array, so each SentPacketEntry can hold its slice as a ushort[]. Accounted as the single upstream allocation.
+            m_sentPacketMessageIds = m_allocator.Allocate(sizeof(ushort) * m_config.maxMessagesPerPacket * m_config.sentPacketBufferSize, () =>
+            {
+                var sentPacketMessageIds = new ushort[m_config.sentPacketBufferSize][];
+                for (var i = 0; i < m_config.sentPacketBufferSize; ++i)
+                    sentPacketMessageIds[i] = new ushort[m_config.maxMessagesPerPacket];
+                return sentPacketMessageIds;
+            }, null, 0);
+            m_packetMessageIds = yojimbo.YOJIMBO_ALLOCATE<ushort>(m_allocator, m_config.maxMessagesPerPacket);
 
             if (!config.disableBlocks)
             {
-                m_sendBlock = new SendBlockData(m_allocator, m_config.MaxFragmentsPerBlock);
-                m_receiveBlock = new ReceiveBlockData(m_allocator, m_config.maxBlockSize, m_config.MaxFragmentsPerBlock);
+                m_sendBlock = yojimbo.YOJIMBO_NEW(m_allocator, () => new SendBlockData(m_allocator, m_config.MaxFragmentsPerBlock));
+                m_receiveBlock = yojimbo.YOJIMBO_NEW(m_allocator, () => new ReceiveBlockData(m_allocator, m_config.maxBlockSize, m_config.MaxFragmentsPerBlock));
             }
             else
             {
@@ -90,14 +95,14 @@ namespace networkprotocol
         {
             Reset();
 
-            m_sendBlock?.Dispose(); m_sendBlock = null;
-            m_receiveBlock?.Dispose(); m_receiveBlock = null;
-            m_sentPackets?.Dispose(); m_sentPackets = null;
-            m_messageSendQueue?.Dispose(); m_messageSendQueue = null;
-            m_messageReceiveQueue?.Dispose(); m_messageReceiveQueue = null;
+            yojimbo.YOJIMBO_DELETE(m_allocator, ref m_sendBlock);
+            yojimbo.YOJIMBO_DELETE(m_allocator, ref m_receiveBlock);
+            yojimbo.YOJIMBO_DELETE(m_allocator, ref m_sentPackets);
+            yojimbo.YOJIMBO_DELETE(m_allocator, ref m_messageSendQueue);
+            yojimbo.YOJIMBO_DELETE(m_allocator, ref m_messageReceiveQueue);
 
-            m_sentPacketMessageIds = null;
-            m_packetMessageIds = null;
+            yojimbo.YOJIMBO_FREE(m_allocator, ref m_sentPacketMessageIds);
+            yojimbo.YOJIMBO_FREE(m_allocator, ref m_packetMessageIds);
         }
 
         public override void Reset()
@@ -449,7 +454,17 @@ namespace networkprotocol
             if (numMessageIds == 0)
                 return true;
 
-            packetData.message.messages = new Message[numMessageIds];
+            packetData.message.messages = yojimbo.YOJIMBO_ALLOCATE<Message>(m_messageFactory.Allocator, numMessageIds);
+
+            if (packetData.message.messages == null)
+            {
+                // Out of memory. Leave the arm empty (numMessages = 0) so packetData stays safe to
+                // Free/serialize, and report failure so the caller drops this channel's data. We
+                // haven't acquired any message references yet, so there is nothing to release.
+                packetData.message.numMessages = 0;
+                SetErrorLevel(ChannelErrorLevel.CHANNEL_ERROR_OUT_OF_MEMORY);
+                return false;
+            }
 
             for (var i = 0; i < numMessageIds; ++i)
             {
@@ -650,7 +665,7 @@ namespace networkprotocol
             if (fragmentRemainder != 0 && fragmentId == m_sendBlock.numFragments - 1)
                 fragmentBytes = fragmentRemainder;
 
-            var fragmentData = new byte[fragmentBytes];
+            var fragmentData = yojimbo.YOJIMBO_ALLOCATE(m_messageFactory.Allocator, fragmentBytes);
 
             if (fragmentData != null)
             {
@@ -860,7 +875,7 @@ namespace networkprotocol
 
                         yojimbo.assert(blockMessage != null);
 
-                        var blockData = new byte[m_receiveBlock.blockSize];
+                        var blockData = yojimbo.YOJIMBO_ALLOCATE(m_messageFactory.Allocator, (int)m_receiveBlock.blockSize);
 
                         if (blockData == null)
                         {
@@ -924,13 +939,13 @@ namespace networkprotocol
             Stores the block data and tracks which fragments have been acked. The block send completes when all fragments have been acked.
             IMPORTANT: Although there can be multiple block messages in the message send and receive queues, only one data block can be in flights over the wire at a time.
          */
-        protected class SendBlockData
+        protected class SendBlockData : IDisposable
         {
             public SendBlockData(Allocator allocator, int maxFragmentsPerBlock)
             {
                 m_allocator = allocator;
-                ackedFragment = new BitArray(allocator, maxFragmentsPerBlock);
-                fragmentSendTime = new double[maxFragmentsPerBlock];
+                ackedFragment = yojimbo.YOJIMBO_NEW(allocator, () => new BitArray(allocator, maxFragmentsPerBlock));
+                fragmentSendTime = yojimbo.YOJIMBO_ALLOCATE<double>(allocator, maxFragmentsPerBlock);
                 yojimbo.assert(ackedFragment != null);
                 yojimbo.assert(fragmentSendTime != null);
                 Reset();
@@ -938,8 +953,8 @@ namespace networkprotocol
 
             public void Dispose()
             {
-                ackedFragment?.Dispose(); ackedFragment = null;
-                fragmentSendTime = null;
+                yojimbo.YOJIMBO_DELETE(m_allocator, ref ackedFragment);
+                yojimbo.YOJIMBO_FREE(m_allocator, ref fragmentSendTime);
             }
 
             public void Reset()
@@ -967,13 +982,13 @@ namespace networkprotocol
             Stores the fragments received over the network for the block, and completes once all fragments have been received.
             IMPORTANT: Although there can be multiple block messages in the message send and receive queues, only one data block can be in flights over the wire at a time.
          */
-        protected class ReceiveBlockData
+        protected class ReceiveBlockData : IDisposable
         {
             public ReceiveBlockData(Allocator allocator, int maxBlockSize, int maxFragmentsPerBlock)
             {
                 m_allocator = allocator;
-                receivedFragment = new BitArray(allocator, maxFragmentsPerBlock);
-                blockData = new byte[maxBlockSize];
+                receivedFragment = yojimbo.YOJIMBO_NEW(allocator, () => new BitArray(allocator, maxFragmentsPerBlock));
+                blockData = yojimbo.YOJIMBO_ALLOCATE(allocator, maxBlockSize);
                 yojimbo.assert(receivedFragment != null && blockData != null);
                 blockMessage = null;
                 Reset();
@@ -981,8 +996,8 @@ namespace networkprotocol
 
             public void Dispose()
             {
-                receivedFragment?.Dispose(); receivedFragment = null;
-                blockData = null;
+                yojimbo.YOJIMBO_DELETE(m_allocator, ref receivedFragment);
+                yojimbo.YOJIMBO_FREE(m_allocator, ref blockData);
             }
 
             public void Reset()

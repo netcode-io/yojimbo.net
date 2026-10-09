@@ -38,7 +38,7 @@ namespace networkprotocol
         A simple bit array class.
         You can create a bit array with a number of bits, set, clear and test if each bit is set.
      */
-    public class BitArray
+    public class BitArray : IDisposable
     {
         /**
             The bit array constructor.
@@ -53,7 +53,7 @@ namespace networkprotocol
             m_size = size;
             m_bytes = 8 * ((size / 64) + ((size % 64) != 0 ? 1 : 0));
             yojimbo.assert(m_bytes > 0);
-            m_data = new ulong[m_bytes / 8];
+            m_data = yojimbo.YOJIMBO_ALLOCATE<ulong>(allocator, m_bytes / 8);
             Clear();
         }
 
@@ -64,7 +64,7 @@ namespace networkprotocol
         {
             yojimbo.assert(m_data != null);
             yojimbo.assert(m_allocator != null);
-            m_data = null;
+            yojimbo.YOJIMBO_FREE(m_allocator, ref m_data);
             m_allocator = null;
         }
 
