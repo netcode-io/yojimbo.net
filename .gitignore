@@ -13,3 +13,7 @@ packages/
 .DS_Store
 *.sublime-project
 *.sublime-workspace
+
+# TypeScript port
+node_modules/
+dist/

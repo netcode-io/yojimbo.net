@@ -1,0 +1,30 @@
+{
+  "name": "yojimbo",
+  "version": "1.13.5",
+  "description": "TypeScript port of yojimbo (with netcode, reliable and serialize) for Node and the browser",
+  "license": "BSD-3-Clause",
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "test": "node test.ts",
+    "test:webrtc": "node webrtc/webrtc_test.ts",
+    "typecheck": "tsc --noEmit -p .",
+    "build": "tsc -p tsconfig.build.json",
+    "demo:webrtc": "npm run build && node webrtc/demo/server.ts"
+  },
+  "peerDependencies": {
+    "node-datachannel": "^0.33.4"
+  },
+  "peerDependenciesMeta": {
+    "node-datachannel": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "node-datachannel": "^0.33.4",
+    "typescript": "^5.9.0"
+  }
+}

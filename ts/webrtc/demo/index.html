@@ -1,0 +1,35 @@
+<!doctype html>
+<!--
+    yojimbo TypeScript port: WebRTC transport extension (not an upstream mirror). DEV demo page.
+    Served by webrtc/demo/server.ts; loads the built library from /dist (run `npm run build` first).
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>yojimbo WebRTC demo</title>
+<style>
+    :root { color-scheme: light dark; --fg: #1d1d1f; --bg: #fafafa; --muted: #666; --pass: #137333; --fail: #b3261e; --panel: #fff; --border: #ddd; }
+    @media (prefers-color-scheme: dark) { :root { --fg: #e8e8e8; --bg: #161616; --muted: #9a9a9a; --pass: #6dd58c; --fail: #ff8a80; --panel: #1f1f1f; --border: #333; } }
+    body { margin: 0; padding: 24px 16px; font: 15px/1.5 system-ui, sans-serif; color: var(--fg); background: var(--bg); }
+    main { max-width: 760px; margin: 0 auto; }
+    h1 { font-size: 20px; margin: 0 0 4px; }
+    p { color: var(--muted); margin: 0 0 16px; }
+    #result { font: 600 16px/1.4 ui-monospace, monospace; padding: 12px 14px; border: 1px solid var(--border); border-radius: 8px; background: var(--panel); overflow-wrap: anywhere; }
+    #result[data-status="pass"] { color: var(--pass); }
+    #result[data-status="fail"] { color: var(--fail); }
+    #log { margin-top: 12px; font: 12px/1.5 ui-monospace, monospace; white-space: pre-wrap; color: var(--muted); }
+    button { margin-top: 12px; font: inherit; padding: 6px 14px; }
+</style>
+</head>
+<body>
+<main>
+    <h1>yojimbo over WebRTC</h1>
+    <p>A yojimbo Client in this page connects to the Node demo server over a WebRTC data channel and runs the interop echo test: 1000 reliable messages (every 8th a block of up to 5000 bytes) plus unreliable messages. Dev only.</p>
+    <div id="result" data-status="running">loading…</div>
+    <button id="run" type="button">Run again</button>
+    <div id="log"></div>
+</main>
+<script type="module" src="/dist/webrtc/demo/page.js"></script>
+</body>
+</html>

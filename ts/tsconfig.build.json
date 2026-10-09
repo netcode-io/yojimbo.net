@@ -1,0 +1,19 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "allowImportingTsExtensions": false,
+    "declaration": true,
+    "sourceMap": true,
+    "outDir": "dist"
+  },
+  "exclude": [
+    "node_modules",
+    "dist",
+    "test.ts",
+    "custom_packet_io_test.ts",
+    "webrtc/webrtc_test.ts",
+    "webrtc/demo/server.ts",
+    "webrtc/demo/node_client.ts"
+  ]
+}

@@ -1,12 +1,13 @@
 #!/bin/bash
-# Runs every server/client pairing of the C++ and C# implementations against each other.
-# usage: interop/run.sh [port]      (builds both sides first; exit code is the number of failed pairings)
+# Runs every server/client pairing of the C++, C# and TypeScript implementations against each other.
+# usage: interop/run.sh [port]      (builds the C++ and C# sides first; exit code is the number of failed pairings)
 HERE=$(cd "$(dirname "$0")" && pwd)
 PORT=${1:-45000}
 "$HERE/build_cpp.sh" > /dev/null || exit 1
 dotnet build "$HERE/cs/interop.csproj" -c Release -v q -nologo > /dev/null || exit 1
 CPP="$HERE/bin/cpp/interop"
 CS="dotnet $HERE/cs/bin/Release/net10.0/interop.dll"
+TS="node $HERE/ts/interop.ts"
 failed=0
 run() {
     local name=$1 server=$2 client=$3
@@ -24,8 +25,10 @@ run() {
     fi
     rm -f /tmp/interop_server.$$ /tmp/interop_client.$$
 }
-run "c++ server <-> c++ client" "$CPP" "$CPP"
-run "c#  server <-> c#  client" "$CS" "$CS"
-run "c++ server <-> c#  client" "$CPP" "$CS"
-run "c#  server <-> c++ client" "$CS" "$CPP"
+impl() { case $1 in c++) echo "$CPP";; c#) echo "$CS";; ts) echo "$TS";; esac; }
+for server in c++ c# ts; do
+    for client in c++ c# ts; do
+        run "$(printf '%-3s server <-> %-3s client' $server $client)" "$(impl $server)" "$(impl $client)"
+    done
+done
 exit $failed
