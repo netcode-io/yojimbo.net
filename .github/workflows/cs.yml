@@ -1,0 +1,73 @@
+# C# port: build, unit tests, fuzz corpus regression, NuGet pack, and interop against the upstream C++ build.
+#
+# The tests bind fixed UDP ports (40000, 30000, ...), so each job runs its suites one after another.
+# Jobs run on separate runners, so they can't collide with each other.
+
+name: cs
+
+on:
+  push:
+    branches: [ master ]
+    paths: [ 'cs/**', 'interop/**', 'cpp', '.gitmodules', '.github/workflows/cs.yml' ]
+  pull_request:
+    paths: [ 'cs/**', 'interop/**', 'cpp', '.gitmodules', '.github/workflows/cs.yml' ]
+  workflow_dispatch:
+
+concurrency:
+  group: cs-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+
+  test:
+    name: test (${{ matrix.os }}, ${{ matrix.configuration }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ ubuntu-latest, macos-latest, windows-latest ]
+        configuration: [ Debug, Release ]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true          # the fuzz corpus lives in cpp/fuzz/corpus
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - name: build
+        run: dotnet build cs/yojimbo.slnx -c ${{ matrix.configuration }}
+      - name: test
+        run: dotnet cs/bin/test/${{ matrix.configuration }}/test.dll
+      - name: custom_packet_io_test
+        run: dotnet cs/bin/custom_packet_io_test/${{ matrix.configuration }}/custom_packet_io_test.dll
+      - name: fuzz corpus regression
+        run: dotnet cs/bin/fuzz/${{ matrix.configuration }}/fuzz.dll
+      - name: upload fuzz crash inputs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-crashes-${{ matrix.os }}-${{ matrix.configuration }}
+          path: crash-*
+          if-no-files-found: ignore
+      - name: pack
+        if: matrix.configuration == 'Release'
+        run: dotnet pack cs/yojimbo.csproj -c Release -o cs/bin/nupkg
+
+  interop:
+    name: interop (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ ubuntu-latest, macos-latest ]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true          # interop builds the upstream C++ in cpp/
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - name: interop
+        run: interop/run.sh
