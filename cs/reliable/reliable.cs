@@ -3669,6 +3669,75 @@ namespace networkprotocol
             test_pair_destroy(pair);
         }
 
+        // regression (found by the TypeScript port; no reliable.c test covers it): a fragment whose num_fragments disagrees
+        // with the packet being reassembled is refused. without the check it counts toward completion and the packet is
+        // delivered with a real fragment missing
+
+        static void test_fragment_count_mismatch()
+        {
+            var capture = new test_truncation_context_t();
+            test_default_context(capture);
+
+            default_config(out var sender_config);
+            sender_config.fragment_size = 256;
+            sender_config.max_fragments = 16;
+            sender_config.max_packet_size = 256 * 16;
+            sender_config.fragment_above = 256;
+            sender_config.id = 0;
+            sender_config.context = capture;
+            sender_config.transmit_packet_function = test_truncation_transmit_packet_function;
+            sender_config.process_packet_function = test_truncation_process_packet_function;
+
+            var context = new test_fragment_context_t();
+            test_default_context(context);
+
+            default_config(out var receiver_config);
+            receiver_config.fragment_size = 256;
+            receiver_config.max_fragments = 16;
+            receiver_config.max_packet_size = 256 * 16;
+            receiver_config.fragment_above = 256;
+            receiver_config.id = 0;
+            receiver_config.context = context;
+            receiver_config.transmit_packet_function = test_transmit_packet_function;
+            receiver_config.process_packet_function = test_fragment_process_packet_function;
+
+            var sender = endpoint_create(sender_config, 100.0);
+            var receiver = endpoint_create(receiver_config, 100.0);
+            check(sender != null);
+            check(receiver != null);
+
+            var packet = new byte[1024];
+            for (var i = 0; i < packet.Length; ++i)
+                packet[i] = (byte)(i * 13 + 1);
+            endpoint_send_packet(sender, packet, packet.Length);
+            check(capture.num_captured == 4);
+
+            // the last fragment re-labelled as fragment 4 of 5: a valid header on its own, but not part of a 4 fragment packet
+
+            var forged = (byte[])capture.captured[3].Clone();
+            forged[3] = 4;
+            forged[4] = 4;
+
+            endpoint_receive_packet(receiver, capture.captured[0], capture.captured_bytes[0]);
+            endpoint_receive_packet(receiver, forged, forged.Length);
+            endpoint_receive_packet(receiver, capture.captured[1], capture.captured_bytes[1]);
+            endpoint_receive_packet(receiver, capture.captured[2], capture.captured_bytes[2]);
+
+            check(endpoint_counters(receiver)[ENDPOINT_COUNTER_NUM_FRAGMENTS_INVALID] == 1);
+            check(context.num_processed == 0);
+
+            // the real last fragment completes the packet, intact
+
+            endpoint_receive_packet(receiver, capture.captured[3], capture.captured_bytes[3]);
+
+            check(context.num_processed == 1);
+            check(context.processed_bytes == packet.Length);
+            check(context.processed.AsSpan(0, packet.Length).SequenceEqual(packet));
+
+            endpoint_destroy(ref sender);
+            endpoint_destroy(ref receiver);
+        }
+
         // C# hardening (no reliable.c equivalent): a packet_bytes that is out of range for the array is dropped, never thrown
 
         static void test_receive_invalid_length()
@@ -4063,6 +4132,7 @@ namespace networkprotocol
                 RUN_TEST("test_endpoint_config_copied", test_endpoint_config_copied);
                 RUN_TEST("test_fragment_header_truncated_embedded_header", test_fragment_header_truncated_embedded_header);
                 RUN_TEST("test_fragment_non_canonical_header", test_fragment_non_canonical_header);
+                RUN_TEST("test_fragment_count_mismatch", test_fragment_count_mismatch);
                 RUN_TEST("test_receive_invalid_length", test_receive_invalid_length);
                 RUN_TEST("test_bandwidth_finite", test_bandwidth_finite);
                 RUN_TEST("test_packet_loss_num_sent", test_packet_loss_num_sent);
