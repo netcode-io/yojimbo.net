@@ -23,6 +23,7 @@ Each port mirrors the upstream folder layout file for file, so an upstream chang
 | `include/yojimbo_X.h` + `source/yojimbo_X.cpp`      | `source/yojimbo_X.cs`                       |
 | `include/yojimbo_X.h` (header only)                 | `include/yojimbo_X.cs`                      |
 | `test.cpp`, `client.cpp`, `server.cpp`, `shared.h`… | `test.cs`, `client.cs`, `server.cs`, `shared.cs`… |
+| `fuzz/fuzz_X.c` / `fuzz/fuzz_X.cpp`                 | `fuzz/fuzz_X.cs`                            |
 
 Rules:
 
@@ -32,17 +33,47 @@ Rules:
 
 ## Building the C# port
 
-Requires the .NET 10 SDK.
+Requires the .NET 10 SDK. Check out with submodules (`git clone --recursive`, or `git submodule update --init`): the fuzz corpus and the interop test use `cpp/`.
 
 ```bash
 dotnet build cs/yojimbo.slnx
 ```
 
 ```bash
-dotnet run --project cs/test.csproj
+dotnet cs/bin/test/Debug/test.dll
 ```
 
-`cs/yojimbo.csproj` is the library (yojimbo with netcode, reliable and serialize compiled in). `test`, `custom_packet_io_test`, `client`, `server`, `loopback` and `soak` are executables that reference it, matching the upstream CMake targets.
+```bash
+dotnet cs/bin/custom_packet_io_test/Debug/custom_packet_io_test.dll
+```
+
+```bash
+dotnet cs/bin/fuzz/Debug/fuzz.dll
+```
+
+Add `-c Release` to the build and use `bin/<project>/Release/` for a release build. `test` takes an optional random seed (`test <seed>`) to reproduce a failure.
+
+`cs/yojimbo.csproj` is the library (yojimbo with netcode, reliable and serialize compiled in). `test`, `custom_packet_io_test`, `client`, `server`, `loopback` and `soak` are executables that reference it, matching the upstream CMake targets. Debug builds turn on the same checks as upstream's debug build: memory and message leak tracking (a leak asserts when its allocator or message factory is disposed) and the packet budget asserts.
+
+### Allocators
+
+Allocation goes through `Allocator` exactly where upstream calls `YOJIMBO_NEW` / `YOJIMBO_ALLOCATE`, so allocation failure and leak tracking behave like upstream. A C# allocator hands out objects built by a factory rather than raw memory, so it can refuse an allocation before anything is built; the GC reclaims what is freed. `TLSF_Allocator` keeps upstream's contract, a fixed size heap per client (`ClientServerConfig.clientMemory` / `serverPerClientMemory`) that fails with `ALLOCATOR_ERROR_OUT_OF_MEMORY` when full, so a client that exhausts its memory is disconnected. It is a byte budget over the GC, not a port of the TLSF algorithm. Left C++ only: the TLSF heap itself, the raw memory blocks behind the client and server allocators (placeholders in C#), and the netcode/reliable allocator callbacks (their buffers stay managed arrays). See the notes at the top of `cs/source/yojimbo_allocator.cs`.
+
+### Fuzzing
+
+`cs/fuzz` holds the upstream fuzz targets (`cpp/fuzz`). With no libFuzzer for C#, `fuzz` runs them as a regression test: it replays every seed in `cpp/fuzz/corpus` and checks the seeds the C code wrote still decode in C#, then runs a seeded mutation pass over the corpus and a batch of pseudo-random inputs. An exception or assert fails the run and saves the input as `crash-<target>-<sha1>`; `fuzz <target> <file>` replays it. `FUZZ_ITERS` (mutations per seed, default 200) and `FUZZ_RANDOM_ITERS` (random inputs per target, default 1000) make longer runs.
+
+### Package
+
+```bash
+dotnet pack cs/yojimbo.csproj -c Release
+```
+
+builds the `yojimbo.net` NuGet package (version 1.13.5, matching upstream) with Source Link symbols.
+
+### CI
+
+`.github/workflows/cs.yml` builds Debug and Release on Linux, macOS and Windows, runs `test`, `custom_packet_io_test` and `fuzz`, packs the library, and runs `interop/run.sh` on Linux and macOS.
 
 ## Interop
 
