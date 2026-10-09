@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Library</OutputType>
+    <Version>1.13.5</Version>
+    <!-- formerly #define'd at the top of the single-file yojimbo.cs -->
+    <DefineConstants>$(DefineConstants);YOJIMBO;YOJIMBO_DEBUG_MEMORY_LEAKS;YOJIMBO_DEBUG_MESSAGE_BUDGET;YOJIMBO_ENABLE_LOGGING;NETCODE_ENABLE_TESTS;RELIABLE_ENABLE_TESTS</DefineConstants>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="include/*.cs;source/*.cs;netcode/*.cs;reliable/*.cs;serialize/*.cs" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="BouncyCastle.Cryptography" Version="2.7.0" />
+  </ItemGroup>
+</Project>

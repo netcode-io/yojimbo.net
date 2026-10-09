@@ -1,0 +1,23 @@
+<Project>
+  <!--
+    Shared settings for the C# port. Mirrors the upstream CMake build:
+    one library (yojimbo, with netcode/reliable/serialize vendored) plus test and sample executables.
+    Several project files live side by side in cs/, so each gets its own obj/ and bin/ folder.
+  -->
+  <PropertyGroup>
+    <!-- override with -p:BuildRoot=/some/dir/ to keep parallel builds apart -->
+    <BuildRoot Condition="'$(BuildRoot)' == ''">$(MSBuildThisFileDirectory)</BuildRoot>
+    <BaseIntermediateOutputPath>$(BuildRoot)obj/$(MSBuildProjectName)/</BaseIntermediateOutputPath>
+    <OutputPath>$(BuildRoot)bin/$(MSBuildProjectName)/$(Configuration)/</OutputPath>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <TargetFramework>net10.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <RootNamespace>networkprotocol</RootNamespace>
+    <!-- C-style port: lower-case type names, unused locals/fields mirror the original source -->
+    <NoWarn>$(NoWarn);CS0162;CS0168;CS0169;CS0219;CS0414;CS0649;CS1717;CS8981</NoWarn>
+  </PropertyGroup>
+</Project>

@@ -1,37 +1,15 @@
-# Visual Studio
-*.db
-*.opendb
-*.csproj
-*.csproj.user
-*.sln
-.vscode
-packages
-packages.config
-_*
+# Build output
+bin/
+obj/
+*.user
+.vs/
+.vscode/
+.idea/
 
-# Makefiles
-Makefile
-*.make
+# Packages
+packages/
 
-# Misc
-*.txt
-*.7z
-*.zip
-*.tar.gz
-
-# Sublime text
+# OS / editor
+.DS_Store
 *.sublime-project
 *.sublime-workspace
-
-# Directories we don't ever want to commit
-bin
-obj
-ipch
-release
-Release
-Debug
-.vs
-cov-int
-docs
-*.exe
-docker/yojimbo.net

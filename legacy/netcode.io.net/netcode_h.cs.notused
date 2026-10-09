@@ -1,0 +1,286 @@
+/*
+    netcode.io reference implementation
+
+    Copyright © 2017 - 2019, The Network Protocol Company, Inc.
+
+    Redistribution and use in source and binary forms, with or without modification, are permitted provided that the following conditions are met:
+
+        1. Redistributions of source code must retain the above copyright notice, this list of conditions and the following disclaimer.
+
+        2. Redistributions in binary form must reproduce the above copyright notice, this list of conditions and the following disclaimer 
+           in the documentation and/or other materials provided with the distribution.
+
+        3. Neither the name of the copyright holder nor the names of its contributors may be used to endorse or promote products derived 
+           from this software without specific prior written permission.
+
+    THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, 
+    INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE 
+    DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, 
+    SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR 
+    SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, 
+    WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE
+    USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+*/
+
+using System;
+using System.Collections.Generic;
+using System.Reflection;
+using System.Reflection.Emit;
+using System.Runtime.InteropServices;
+
+namespace networkprotocol
+{
+    public static partial class netcode
+    {
+        public const int CONNECT_TOKEN_BYTES = 2048;
+        public const int KEY_BYTES = 32;
+        public const int MAC_BYTES = 16;
+        public const int USER_DATA_BYTES = 256;
+        public const int MAX_SERVERS_PER_CONNECT = 32;
+
+        public const int CLIENT_STATE_CONNECT_TOKEN_EXPIRED = -6;
+        public const int CLIENT_STATE_INVALID_CONNECT_TOKEN = -5;
+        public const int CLIENT_STATE_CONNECTION_TIMED_OUT = -4;
+        public const int CLIENT_STATE_CONNECTION_RESPONSE_TIMED_OUT = -3;
+        public const int CLIENT_STATE_CONNECTION_REQUEST_TIMED_OUT = -2;
+        public const int CLIENT_STATE_CONNECTION_DENIED = -1;
+        public const int CLIENT_STATE_DISCONNECTED = 0;
+        public const int CLIENT_STATE_SENDING_CONNECTION_REQUEST = 1;
+        public const int CLIENT_STATE_SENDING_CONNECTION_RESPONSE = 2;
+        public const int CLIENT_STATE_CONNECTED = 3;
+
+        public const int MAX_CLIENTS = 256;
+        public const int MAX_PACKET_SIZE = 1200;
+
+        public const int LOG_LEVEL_NONE = 0;
+        public const int LOG_LEVEL_ERROR = 1;
+        public const int LOG_LEVEL_INFO = 2;
+        public const int LOG_LEVEL_DEBUG = 3;
+
+        public const int OK = 1;
+        public const int ERROR = 0;
+
+        public const int ADDRESS_NONE = 0;
+        public const int ADDRESS_IPV4 = 1;
+        public const int ADDRESS_IPV6 = 2;
+    }
+
+    public class netcode_client_t { }
+
+    public class netcode_server_t { }
+
+    public class netcode_network_simulator_t { }
+
+    public static partial class netcode
+    {
+        public static int init() => 0;
+
+        public static void term() { }
+    }
+
+    public class netcode_address_t
+    {
+        public IPAddress data;
+        public ushort port;
+        public byte type;
+    }
+
+    static partial class netcode
+    {
+        public static int parse_address(string address_string_in, out netcode_address_t address) => 0;
+
+        public static string address_to_string(netcode_address_t address, out string buffer) { buffer = null; return null; }
+
+        public static int address_equal(netcode_address_t a, netcode_address_t b) => 0;
+    }
+
+    public class netcode_client_config_t
+    {
+        public object allocator_context;
+        public Func<object, ulong, object> allocate_function;
+        public Action<object, object> free_function;
+        public netcode_network_simulator_t network_simulator;
+        public object callback_context;
+        public Action<object, int, int> state_change_callback;
+        public Action<object, int, byte[], int, ulong> send_loopback_packet_callback;
+        public bool override_send_and_receive;
+        public Action<object, netcode_address_t, byte[], int> send_packet_override;
+        public Func<object, netcode_address_t, byte[], int, int> receive_packet_override;
+    }
+
+    static partial class netcode
+    {
+        public static void default_client_config(out netcode_client_config_t config) { config = null; }
+
+        public static netcode_client_t client_create(string address, netcode_client_config_t config, double time) => null;
+
+        public static void client_destroy(ref netcode_client_t client) { }
+
+        public static void client_connect(this netcode_client_t client, byte[] connect_token) { }
+
+        public static void client_update(this netcode_client_t client, double time) { }
+
+        public static ulong client_next_packet_sequence(this netcode_client_t client) => 0;
+
+        public static void client_send_packet(this netcode_client_t client, byte[] packet_data, int packet_bytes) { }
+
+        public static byte[] client_receive_packet(this netcode_client_t client, out int packet_bytes, out ulong packet_sequence) { packet_bytes = 0; packet_sequence = 0; return null; }
+
+        public static void client_free_packet(this netcode_client_t client, ref byte[] packet) => packet = null;
+
+        public static void client_disconnect(this netcode_client_t client) { }
+
+        public static int client_state(this netcode_client_t client) => 0;
+
+        public static int client_index(this netcode_client_t client) => 0;
+
+        public static int client_max_clients(this netcode_client_t client) => 0;
+
+        public static void client_connect_loopback(this netcode_client_t client, int client_index, int max_clients) { }
+
+        public static void client_disconnect_loopback(this netcode_client_t client) { }
+
+        public static void client_process_packet(this netcode_client_t client, netcode_address_t from, byte[] packet_data, int packet_bytes) { }
+
+        public static int client_loopback(this netcode_client_t client) => 0;
+
+        public static void client_process_loopback_packet(this netcode_client_t client, byte[] packet_data, int packet_bytes, ulong packet_sequence) { }
+
+        public static ushort client_get_port(this netcode_client_t client) => 0;
+
+        public static netcode_address_t client_server_address(this netcode_client_t client) => new netcode_address_t();
+
+        public static int generate_connect_token(
+            int num_server_addresses,
+            IList<string> public_server_addresses,
+            IList<string> internal_server_addresses,
+            int expire_seconds,
+            int timeout_seconds,
+            ulong client_id,
+            ulong protocol_id,
+            byte[] private_key,
+            byte[] user_data,
+            byte[] connect_token) => 0;
+    }
+
+    public class netcode_server_config_t
+    {
+        public ulong protocol_id;
+        public byte[] private_key; // [NETCODE_KEY_BYTES]
+        public object allocator_context;
+        public Func<object, ulong, object> allocate_function;
+        public Action<object, object> free_function;
+        public netcode_network_simulator_t network_simulator;
+        public object callback_context;
+        public Action<object, int, int> connect_disconnect_callback;
+        public Action<object, int, byte[], int, ulong> send_loopback_packet_callback;
+        public bool override_send_and_receive;
+        public Action<object, netcode_address_t, byte[], int> send_packet_override;
+        public Func<object, netcode_address_t, byte[], int, int> receive_packet_override;
+    }
+
+    static partial class netcode
+    {
+        public static void default_server_config(out netcode_server_config_t config) { config = null; }
+
+        public static netcode_server_t server_create(string server_address, netcode_server_config_t config, double time) => null;
+
+        public static void server_destroy(ref netcode_server_t server) { }
+
+        public static void server_start(this netcode_server_t server, int max_clients) { }
+
+        public static void server_stop(this netcode_server_t server) { }
+
+        public static bool server_running(this netcode_server_t server) => false;
+
+        public static int server_max_clients(this netcode_server_t server) => 0;
+
+        public static void server_update(this netcode_server_t server, double time) { }
+
+        public static bool server_client_connected(this netcode_server_t server, int client_index) => false;
+
+        public static ulong server_client_id(this netcode_server_t server, int client_index) => 0;
+
+        public static netcode_address_t server_client_address(this netcode_server_t server, int client_index) => null;
+
+        public static void server_disconnect_client(this netcode_server_t server, int client_index) { }
+
+        public static void server_disconnect_all_clients(this netcode_server_t server) { }
+
+        public static ulong server_next_packet_sequence(this netcode_server_t server, int client_index) => 0;
+
+        public static void server_send_packet(this netcode_server_t server, int client_index, byte[] packet_data, int packet_bytes) { }
+
+        public static byte[] server_receive_packet(this netcode_server_t server, int client_index, out int packet_bytes, out ulong packet_sequence) { packet_bytes = 0; packet_sequence = 0; return null; }
+
+        public static void server_free_packet(this netcode_server_t server, ref byte[] packet) => packet = null;
+
+        public static int server_num_connected_clients(this netcode_server_t server) => 0;
+
+        public static object server_client_user_data(this netcode_server_t server, int client_index) => null;
+
+        public static void server_process_packet(this netcode_server_t server, netcode_address_t from, byte[] packet_data, int packet_bytes) { }
+
+        public static void server_connect_loopback_client(this netcode_server_t server, int client_index, ulong client_id, byte[] user_data) { }
+
+        public static void server_disconnect_loopback_client(this netcode_server_t server, int client_index) { }
+
+        public static int server_client_loopback(this netcode_server_t server, int client_index) => 0;
+
+        public static void server_process_loopback_packet(this netcode_server_t server, int client_index, byte[] packet_data, int packet_bytes, ulong packet_sequence) { }
+
+        public static ushort server_get_port(this netcode_server_t server) => 0;
+    }
+
+    public static partial class netcode
+    {
+        public static void log_level(int level) { }
+
+        public static void set_printf_function(Func<string, int> function) { }
+
+        public static Action<string, string, string, int> _assert_function;
+
+        [Conditional("DEBUG")]
+        public static void assert(bool condition) { }
+
+        public static void set_assert_function(Action<string, string, string, int> function) => assert_function = function;
+
+        public static void random_bytes(ref ulong data, int bytes) { }
+        public static void random_bytes(byte[] data, int bytes) { }
+
+        public static void sleep(double seconds) { }
+
+        public static double time() => 0;
+    }
+
+    internal static class Util
+    {
+        static Action<IntPtr, byte, int> MemsetDelegate;
+
+        static Util()
+        {
+            var dynamicMethod = new DynamicMethod("Memset", MethodAttributes.Public | MethodAttributes.Static, CallingConventions.Standard, null, new[] { typeof(IntPtr), typeof(byte), typeof(int) }, typeof(Util), true);
+            var generator = dynamicMethod.GetILGenerator();
+            generator.Emit(OpCodes.Ldarg_0);
+            generator.Emit(OpCodes.Ldarg_1);
+            generator.Emit(OpCodes.Ldarg_2);
+            generator.Emit(OpCodes.Initblk);
+            generator.Emit(OpCodes.Ret);
+            MemsetDelegate = (Action<IntPtr, byte, int>)dynamicMethod.CreateDelegate(typeof(Action<IntPtr, byte, int>));
+        }
+
+        public static void Memset(byte[] array, byte what, int length)
+        {
+            var gcHandle = GCHandle.Alloc(array, GCHandleType.Pinned);
+            MemsetDelegate(gcHandle.AddrOfPinnedObject(), what, length);
+            gcHandle.Free();
+        }
+
+        public static void ForMemset<T>(T[] array, T what, int length)
+        {
+            for (var i = 0; i < length; i++)
+                array[i] = what;
+        }
+
+    }
+}
