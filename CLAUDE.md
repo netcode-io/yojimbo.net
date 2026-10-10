@@ -6,7 +6,7 @@ C# and TypeScript ports of the yojimbo C++ network library (with netcode, reliab
 
 - `cpp/`: upstream yojimbo as a git submodule (`mas-bandwidth/yojimbo`, pinned at 1.13.5). The reference every port follows. Never edit it; to move to a new upstream version, bump the pin.
 - `cs/`: C# port. The library `cs/yojimbo.csproj` (NuGet id `yojimbo`) targets `net10.0` and `netstandard2.1`, for Unity and other .NET Standard runtimes; the programs run on .NET 10. The executables are `test`, `custom_packet_io_test`, `fuzz`, `client`, `server`, `loopback` and `soak`, all in `cs/yojimbo.slnx`.
-- `ts/`: TypeScript port for Node 24+ and browsers (npm package `yojimbo2`; plain `yojimbo` is taken on npm). `ts/webrtc/` adds browser clients over WebRTC; it is an extension, not an upstream mirror.
+- `ts/`: TypeScript port for Node 24+ and browsers (npm package `yojimbo2`; plain `yojimbo` is taken on npm). `ts/webrtc/` adds browser clients over WebRTC, with the server on Node or in a browser page; it is an extension, not an upstream mirror.
 - `interop/`: runs C++, C# and TypeScript against each other in all nine server/client pairings.
 - `tools/version.mjs`: the package version tool (see Versions and releases). `VERSION` at the root is the source of truth.
 - `tools/upstream_diff.mjs`: the upstream change report (see Syncing with upstream).
@@ -26,12 +26,13 @@ dotnet cs/bin/test/Debug/test.dll                             # 147 tests: seria
 dotnet cs/bin/custom_packet_io_test/Debug/custom_packet_io_test.dll
 dotnet cs/bin/fuzz/Debug/fuzz.dll                             # upstream fuzz corpus replay + seeded mutation
 cd ts && npm ci && npm test                                   # 212 tests (node test.ts)
-cd ts && npm run typecheck && npm run build && npm run test:webrtc
+cd ts && npm run typecheck && npm run build && npm run test:webrtc && npm run test:bundle
+cd ts && npx playwright-core install --only-shell chromium && npm run test:browser   # server hosted in headless Chromium
 interop/run.sh                                                # needs cc/c++, .NET 10, Node 24
 ```
 
 - **Tests bind fixed UDP ports** (40000, 30000, ...), so never run two suites at the same time. A "bind failed" or "server_create failed" error often just means another run held the port; rerun before debugging.
-- **CI:** `.github/workflows/cs.yml` runs C# on Linux, macOS and Windows plus interop; `ts.yml` runs TypeScript on all three. Both must stay green. `upstream.yml` runs weekly and keeps one `upstream-sync` issue open while upstream is past the pin.
+- **CI:** `.github/workflows/cs.yml` runs C# on Linux, macOS and Windows plus interop; `ts.yml` runs TypeScript on all three, plus a `browser` job (headless Chromium, Linux). Both must stay green. `upstream.yml` runs weekly and keeps one `upstream-sync` issue open while upstream is past the pin.
 
 ## Port conventions
 
@@ -45,7 +46,7 @@ interop/run.sh                                                # needs cc/c++, .N
   - Relative imports use the `.ts` extension.
   - Integers up to 32 bits are `number`; 64-bit values are `bigint`.
   - Serialize calls use the slot API, `serialize_x(stream, obj, 'field', ...)`.
-  - No `node:` imports outside the platform seams: netcode's dgram socket layer loads through `process.getBuiltinModule`, and `webrtc_server.ts` is Node-only.
+  - No `node:` imports outside the platform seams: netcode's dgram socket layer loads through `process.getBuiltinModule`, and `webrtc_server_http.ts` is Node-only. `webrtc_server.ts` must stay browser-bundleable and its declarations DOM-free (`npm run test:bundle` checks the bundle).
 - **Node event loop:** sockets deliver only while the event loop runs. Node reads at most 32 datagrams per socket per turn on macOS and Linux, and one on Windows. Loops over real sockets must await between frames, and test pumps yield a fixed number of turns (see `PumpEventLoopTurns` in `ts/test.ts`).
 
 ## Versions and releases
@@ -67,7 +68,7 @@ interop/run.sh                                                # needs cc/c++, .N
   `.github/workflows/release.yml` then checks the versions and runs all tests and interop. It packs, publishes to NuGet (secret `NUGET_API_KEY`) and npm with provenance (secret `NPM_TOKEN`), and creates the GitHub release. Running the workflow by hand is a dry run unless "publish" is ticked.
 - **Package contents:**
   - **npm:** only `ts/dist` library files (`files` in `ts/package.json`) and `LICENCE`, which `prepack` copies from the root.
-  - **npm entry points:** `.`, `./netcode`, `./reliable`, `./serialize`, `./sodium`, `./webrtc/client`, `./webrtc/server`, `./webrtc/token`. Deep imports are blocked.
+  - **npm entry points:** `.`, `./netcode`, `./reliable`, `./serialize`, `./sodium`, `./webrtc/client`, `./webrtc/server`, `./webrtc/server-http`, `./webrtc/token`. Deep imports are blocked.
   - **NuGet:** `lib/net10.0` and `lib/netstandard2.1`, plus a symbols package.
 - **Before a release that changes packaging,** prove both packages from the consumer side:
   - `npm pack`, install the tarball into a scratch project, then type-check with full lib checking, run an example and bundle for the browser with esbuild;
@@ -84,4 +85,4 @@ interop/run.sh                                                # needs cc/c++, .N
 
 - The user wants work committed and pushed straight to `master` when they ask. There are no PRs. The `ssh-agent` may have no keys loaded; pushing over HTTPS with `gh` credentials works: `git -c credential.helper='!gh auth git-credential' push https://github.com/netcode-io/yojimbo.git master`.
 - Prefer self-owned code to dependencies. The ChaCha20/Poly1305 port is ours on purpose.
-- Don't add abstraction layers for two fixed implementations. WebRTC is exactly native browser APIs plus `node-datachannel`.
+- Don't add abstraction layers for two fixed implementations. WebRTC is exactly the standard `RTCPeerConnection` API: the browser's own, or `node-datachannel`'s polyfill on Node (passed as a constructor, nothing more). Signaling is one function shape (`connect( token, signal )` / `adapter.accept()`), with HTTP as the built-in transport.

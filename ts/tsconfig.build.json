@@ -14,6 +14,9 @@
     "test.ts",
     "custom_packet_io_test.ts",
     "webrtc/webrtc_test.ts",
+    "webrtc/webrtc_bundle_test.ts",
+    "webrtc/webrtc_browser_test.ts",
+    "webrtc/webrtc_browser_page.ts",
     "webrtc/demo/server.ts",
     "webrtc/demo/node_client.ts"
   ]

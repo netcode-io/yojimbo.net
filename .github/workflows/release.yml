@@ -76,6 +76,8 @@ jobs:
           npm test
           node custom_packet_io_test.ts
           npm run test:webrtc
+          npm run build
+          npm run test:bundle
       - name: interop
         run: interop/run.sh
 
