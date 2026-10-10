@@ -1,0 +1,13 @@
+<Project>
+  <!--
+    The library builds for net10.0 and netstandard2.1. The programs run on net10.0 and use the net10.0 library by
+    default; build with -p:YojimboTargetFramework=netstandard2.1 to run them (tests included) against the
+    netstandard2.1 library instead. YOJIMBO_NETSTANDARD then compiles out the tests of APIs .NET Standard lacks.
+  -->
+  <ItemGroup Condition="'$(YojimboTargetFramework)' != '' and '$(MSBuildProjectName)' != 'yojimbo'">
+    <ProjectReference Update="yojimbo.csproj" SetTargetFramework="TargetFramework=$(YojimboTargetFramework)" />
+  </ItemGroup>
+  <PropertyGroup Condition="$(YojimboTargetFramework.StartsWith('netstandard')) and '$(MSBuildProjectName)' != 'yojimbo'">
+    <DefineConstants>$(DefineConstants);YOJIMBO_NETSTANDARD</DefineConstants>
+  </PropertyGroup>
+</Project>

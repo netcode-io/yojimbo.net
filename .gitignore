@@ -20,3 +20,9 @@ dist/
 
 # Fuzz crash inputs (cs/fuzz)
 crash-*
+
+# copied from the repo root by prepack
+ts/LICENCE
+
+# release packaging (CI)
+artifacts/

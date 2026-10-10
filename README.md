@@ -71,7 +71,7 @@ Allocation goes through `Allocator` exactly where upstream calls `YOJIMBO_NEW` /
 dotnet pack cs/yojimbo.csproj -c Release
 ```
 
-builds the `yojimbo` NuGet package (version 1.13.5, matching upstream) with Source Link symbols.
+builds the `yojimbo` NuGet package with Source Link symbols. Versions mirror upstream yojimbo, with a fourth digit for port-only fixes (`1.13.5`, `1.13.5.1`). The TypeScript port publishes to npm as `yojimbo2` with the revision folded into the patch (`1.13.500`, `1.13.501`). `node tools/version.mjs` sets and checks both. Pushing a `v<version>` tag runs `.github/workflows/release.yml`, which tests and publishes both packages.
 
 ### CI
 

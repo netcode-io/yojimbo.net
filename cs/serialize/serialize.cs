@@ -89,6 +89,7 @@ namespace networkprotocol
         public static int bits_required64(ulong min, ulong max) =>
             (min == max) ? 0 : 64 - BitOperations.LeadingZeroCount(max - min);
 
+#if NET7_0_OR_GREATER // Int128/UInt128: not in .NET Standard 2.1
         /**
             Calculates the number of bits required to serialize a 128 bit integer in range [min,max].
             The subtraction is performed in the unsigned domain, so ranges wider than 2^127 work.
@@ -96,6 +97,7 @@ namespace networkprotocol
          */
         public static int bits_required128(UInt128 min, UInt128 max) =>
             (min == max) ? 0 : 128 - (int)UInt128.LeadingZeroCount(max - min);
+#endif
 
         /**
             Reverse the order of bytes in a 64 bit integer.
@@ -576,7 +578,9 @@ namespace networkprotocol
 
         public abstract bool SerializeInteger(ref int value, int min, int max);
         public abstract bool SerializeInteger64(ref long value, long min, long max);
+#if NET7_0_OR_GREATER // Int128/UInt128: not in .NET Standard 2.1
         public abstract bool SerializeInteger128(ref Int128 value, Int128 min, Int128 max);
+#endif
         public abstract bool SerializeBits(ref uint value, int bits);
         public abstract bool SerializeBytes(byte[] data, int bytes);
         public abstract bool SerializeAlign();
@@ -692,6 +696,7 @@ namespace networkprotocol
             return true;
         }
 
+#if NET7_0_OR_GREATER // Int128/UInt128: not in .NET Standard 2.1
         /**
             Serialize a 128 bit integer (write). 32 bit groups, least significant first.
             @returns Always returns true. All checking is performed by debug asserts only on write.
@@ -731,6 +736,7 @@ namespace networkprotocol
             }
             return true;
         }
+#endif
 
         /**
             Serialize a number of bits (write).
@@ -911,6 +917,7 @@ namespace networkprotocol
             return true;
         }
 
+#if NET7_0_OR_GREATER // Int128/UInt128: not in .NET Standard 2.1
         /**
             Serialize a 128 bit integer (read). 32 bit groups, least significant first.
             @returns Returns true if the serialize succeeded and the value is in the correct range. False otherwise.
@@ -953,6 +960,7 @@ namespace networkprotocol
             value = unchecked((Int128)(unsigned_value + (UInt128)min));
             return true;
         }
+#endif
 
         /**
             Serialize a number of bits (read).
@@ -1081,6 +1089,7 @@ namespace networkprotocol
             return true;
         }
 
+#if NET7_0_OR_GREATER // Int128/UInt128: not in .NET Standard 2.1
         /**
             Serialize a 128 bit integer (measure).
             @returns Always returns true. All checking is performed by debug asserts only on measure.
@@ -1093,6 +1102,7 @@ namespace networkprotocol
             m_bitsWritten += yojimbo.bits_required128((UInt128)min, (UInt128)max);
             return true;
         }
+#endif
 
         /**
             Serialize a number of bits (measure).
@@ -1223,6 +1233,7 @@ namespace networkprotocol
             return true;
         }
 
+#if NET7_0_OR_GREATER // Int128/UInt128: not in .NET Standard 2.1
         /**
             Serialize a ranged 128 bit integer to the stream (read/write/measure).
             Where the range fits 64 bits or fewer the bytes are identical to serialize_int64 over the same bounds.
@@ -1244,6 +1255,7 @@ namespace networkprotocol
                 value = int128_value;
             return true;
         }
+#endif
 
         #endregion
 
@@ -1338,6 +1350,7 @@ namespace networkprotocol
         /// Serialize unsigned 64 bit integer (read/write/measure). Low dword first, then high dword.
         public static bool serialize_uint64(this BaseStream stream, ref ulong value) => serialize_bits(stream, ref value, 64);
 
+#if NET7_0_OR_GREATER // Int128/UInt128: not in .NET Standard 2.1
         /**
             Serialize an unsigned 128 bit integer (read/write/measure).
             The wire format is 128 bits raw: the low 64 bit half first, then the high half.
@@ -1358,6 +1371,7 @@ namespace networkprotocol
                 value = ((UInt128)high_half << 64) | low_half;
             return true;
         }
+#endif
 
         #endregion
 
@@ -1931,6 +1945,7 @@ namespace networkprotocol
         public static bool serialize_fixed(this BaseStream stream, ref byte value, int integerBits, int fractionBits, long minUnits, long maxUnits)
         { var raw = (ulong)value; if (!serialize_fixed_narrow(stream, ref raw, integerBits, fractionBits, minUnits, maxUnits, false, 8)) return false; value = unchecked((byte)raw); return true; }
 
+#if NET7_0_OR_GREATER // Int128/UInt128: not in .NET Standard 2.1
         /**
             Serialize a fixed point value with 128 bit storage (read/write/measure).
             The offset is written in 32 bit groups, least significant group first.
@@ -2023,6 +2038,7 @@ namespace networkprotocol
         { var raw = unchecked((UInt128)value); if (!serialize_fixed_wide(stream, ref raw, integerBits, fractionBits, minUnits, maxUnits, true)) return false; value = unchecked((Int128)raw); return true; }
         public static bool serialize_fixed(this BaseStream stream, ref UInt128 value, int integerBits, int fractionBits, long minUnits, long maxUnits)
         { var raw = value; if (!serialize_fixed_wide(stream, ref raw, integerBits, fractionBits, minUnits, maxUnits, false)) return false; value = raw; return true; }
+#endif
 
         #endregion
 
@@ -2034,13 +2050,17 @@ namespace networkprotocol
         public static bool read_bits(this BaseStream stream, ref ulong value, int bits) { assert(stream.IsReading); return serialize_bits(stream, ref value, bits); }
         public static bool read_int(this BaseStream stream, ref int value, int min, int max) { assert(stream.IsReading); return serialize_int(stream, ref value, min, max); }
         public static bool read_int64(this BaseStream stream, ref long value, long min, long max) { assert(stream.IsReading); return serialize_int64(stream, ref value, min, max); }
+#if NET7_0_OR_GREATER // Int128/UInt128: not in .NET Standard 2.1
         public static bool read_int128(this BaseStream stream, ref Int128 value, Int128 min, Int128 max) { assert(stream.IsReading); return serialize_int128(stream, ref value, min, max); }
+#endif
         public static bool read_bool(this BaseStream stream, ref bool value) { assert(stream.IsReading); return serialize_bool(stream, ref value); }
         public static bool read_uint8(this BaseStream stream, ref byte value) { assert(stream.IsReading); return serialize_uint8(stream, ref value); }
         public static bool read_uint16(this BaseStream stream, ref ushort value) { assert(stream.IsReading); return serialize_uint16(stream, ref value); }
         public static bool read_uint32(this BaseStream stream, ref uint value) { assert(stream.IsReading); return serialize_uint32(stream, ref value); }
         public static bool read_uint64(this BaseStream stream, ref ulong value) { assert(stream.IsReading); return serialize_uint64(stream, ref value); }
+#if NET7_0_OR_GREATER // Int128/UInt128: not in .NET Standard 2.1
         public static bool read_uint128(this BaseStream stream, ref UInt128 value) { assert(stream.IsReading); return serialize_uint128(stream, ref value); }
+#endif
         public static bool read_float(this BaseStream stream, ref float value) => serialize_float(stream, ref value);
         public static bool read_double(this BaseStream stream, ref double value) => serialize_double(stream, ref value);
         public static bool read_bytes(this BaseStream stream, byte[] data, int bytes) { assert(stream.IsReading); return serialize_bytes(stream, data, bytes); }
@@ -2056,13 +2076,17 @@ namespace networkprotocol
         public static bool write_bits(this BaseStream stream, ulong value, int bits) { assert(stream.IsWriting); return serialize_bits(stream, ref value, bits); }
         public static bool write_int(this BaseStream stream, int value, int min, int max) { assert(stream.IsWriting); return serialize_int(stream, ref value, min, max); }
         public static bool write_int64(this BaseStream stream, long value, long min, long max) { assert(stream.IsWriting); return serialize_int64(stream, ref value, min, max); }
+#if NET7_0_OR_GREATER // Int128/UInt128: not in .NET Standard 2.1
         public static bool write_int128(this BaseStream stream, Int128 value, Int128 min, Int128 max) { assert(stream.IsWriting); return serialize_int128(stream, ref value, min, max); }
+#endif
         public static bool write_bool(this BaseStream stream, bool value) { assert(stream.IsWriting); return serialize_bool(stream, ref value); }
         public static bool write_uint8(this BaseStream stream, byte value) { assert(stream.IsWriting); return serialize_uint8(stream, ref value); }
         public static bool write_uint16(this BaseStream stream, ushort value) { assert(stream.IsWriting); return serialize_uint16(stream, ref value); }
         public static bool write_uint32(this BaseStream stream, uint value) { assert(stream.IsWriting); return serialize_uint32(stream, ref value); }
         public static bool write_uint64(this BaseStream stream, ulong value) { assert(stream.IsWriting); return serialize_uint64(stream, ref value); }
+#if NET7_0_OR_GREATER // Int128/UInt128: not in .NET Standard 2.1
         public static bool write_uint128(this BaseStream stream, UInt128 value) { assert(stream.IsWriting); return serialize_uint128(stream, ref value); }
+#endif
         public static bool write_float(this BaseStream stream, float value) => serialize_float(stream, ref value);
         public static bool write_double(this BaseStream stream, double value) => serialize_double(stream, ref value);
         public static bool write_bytes(this BaseStream stream, byte[] data, int bytes) { assert(stream.IsWriting); return serialize_bytes(stream, data, bytes); }

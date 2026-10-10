@@ -5,9 +5,10 @@ C# and TypeScript ports of the yojimbo C++ network library (with netcode, reliab
 ## Layout
 
 - `cpp/`: upstream yojimbo as a git submodule (`mas-bandwidth/yojimbo`, pinned at 1.13.5). The reference every port follows. Never edit it; to move to a new upstream version, bump the pin.
-- `cs/`: C# port, .NET 10. Library `cs/yojimbo.csproj` (NuGet id `yojimbo`), executables `test`, `custom_packet_io_test`, `fuzz`, `client`, `server`, `loopback` and `soak`, all in `cs/yojimbo.slnx`.
+- `cs/`: C# port. The library `cs/yojimbo.csproj` (NuGet id `yojimbo`) targets `net10.0` and `netstandard2.1`, for Unity and other .NET Standard runtimes; the programs run on .NET 10. The executables are `test`, `custom_packet_io_test`, `fuzz`, `client`, `server`, `loopback` and `soak`, all in `cs/yojimbo.slnx`.
 - `ts/`: TypeScript port for Node 24+ and browsers (npm package `yojimbo2`; plain `yojimbo` is taken on npm). `ts/webrtc/` adds browser clients over WebRTC; it is an extension, not an upstream mirror.
 - `interop/`: runs C++, C# and TypeScript against each other in all nine server/client pairings.
+- `tools/version.mjs`: the package version tool (see Versions and releases). `VERSION` at the root is the source of truth.
 
 ## Mirroring rules (keep them)
 
@@ -33,6 +34,10 @@ interop/run.sh                                                # needs cc/c++, .N
 
 ## Port conventions
 
+- **.NET Standard 2.1:** `cs/netstandard.cs` fills in the newer APIs the port uses: compiler attributes, `BitOperations`, `ReferenceEqualityComparer`, and C# 14 extension members such as `OperatingSystem.IsWindows` and `Convert.ToHexString`. That lets ported files compile unchanged for both targets.
+  - When you use a newer .NET API, either add a polyfill there or guard the code.
+  - `Int128`/`UInt128` code is guarded with `#if NET7_0_OR_GREATER` (in tests, `#if !YOJIMBO_NETSTANDARD`).
+  - Run the tests against that build with `dotnet build cs/test.csproj -p:YojimboTargetFramework=netstandard2.1 -p:BuildRoot=<other dir>/`. Use a separate output folder so the default build isn't overwritten. CI runs both.
 - **C#:** C-style names as upstream (`netcode.client_create`, `reliable.endpoint_send_packet`, the `yojimbo` static class for free functions). The stream `serialize_*` extension methods return bool; every call site must propagate a failure. The allocator semantics are real (error level, leak tracking, failure injection in tests).
 - **TypeScript:** see [ts/README.md](ts/README.md).
   - The code is ESM, with `erasableSyntaxOnly` (no enums or namespaces).
@@ -42,11 +47,34 @@ interop/run.sh                                                # needs cc/c++, .N
   - No `node:` imports outside the platform seams: netcode's dgram socket layer loads through `process.getBuiltinModule`, and `webrtc_server.ts` is Node-only.
 - **Node event loop:** sockets deliver only while the event loop runs. Node reads at most 32 datagrams per socket per turn on macOS and Linux, and one on Windows. Loops over real sockets must await between frames, and test pumps yield a fixed number of turns (see `PumpEventLoopTurns` in `ts/test.ts`).
 
+## Versions and releases
+
+- **Packages:** NuGet `yojimbo` (C#), npm `yojimbo2` (TypeScript; plain `yojimbo` on npm is someone else's package).
+- **Versions mirror upstream yojimbo,** plus a port revision for fixes made here between upstream releases. `VERSION` holds it in NuGet form:
+  - `1.13.5` is the port of upstream 1.13.5.
+  - `1.13.5.1` is the first port-only fix on top of it.
+- **npm has no fourth part,** so its patch is PATCH × 100 + REVISION: `1.13.500`, `1.13.501`, and upstream 1.13.6 becomes `1.13.600`. This keeps ordering correct, so never publish npm `1.13.5` or `1.13.6`.
+- **Use the tool, never hand-edit:** `node tools/version.mjs set <version>` writes `VERSION`, `cs/yojimbo.csproj` and `ts/package.json` plus its lockfile. `node tools/version.mjs check [tag]` verifies them against each other and against `cpp/include/yojimbo_config.h`.
+- **In-code version constants** mirror upstream's macros (the upstream version, with no port revision). Don't change them for port fixes.
+- **To release:**
+  1. Bump with the tool.
+  2. Commit and push.
+  3. Push the tag `v$(cat VERSION)`.
+
+  `.github/workflows/release.yml` then checks the versions and runs all tests and interop. It packs, publishes to NuGet (secret `NUGET_API_KEY`) and npm with provenance (secret `NPM_TOKEN`), and creates the GitHub release. Running the workflow by hand is a dry run unless "publish" is ticked.
+- **Package contents:**
+  - **npm:** only `ts/dist` library files (`files` in `ts/package.json`) and `LICENCE`, which `prepack` copies from the root.
+  - **npm entry points:** `.`, `./netcode`, `./reliable`, `./serialize`, `./sodium`, `./webrtc/client`, `./webrtc/server`, `./webrtc/token`. Deep imports are blocked.
+  - **NuGet:** `lib/net10.0` and `lib/netstandard2.1`, plus a symbols package.
+- **Before a release that changes packaging,** prove both packages from the consumer side:
+  - `npm pack`, install the tarball into a scratch project, then type-check with full lib checking, run an example and bundle for the browser with esbuild;
+  - `dotnet pack` to a local feed, then `dotnet add package yojimbo --source <feed>` and run an example.
+
 ## Syncing with upstream
 
 1. Fetch upstream in `cpp/` and diff the pinned commit against the new one (`git -C cpp log/diff <pin>..<new>`).
 2. Port each changed upstream file into its mirrored C# and TypeScript files. Port new upstream tests too.
-3. Bump the submodule pin, update the version numbers (`cs/yojimbo.csproj`, `ts/package.json`, the version constants) and the README.
+3. Bump the submodule pin. Set the package version with `node tools/version.mjs set <new upstream version>`, update the in-code version constants and the README.
 4. Run every command above, including `interop/run.sh`.
 
 ## Working here

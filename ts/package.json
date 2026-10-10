@@ -1,10 +1,79 @@
 {
   "name": "yojimbo2",
-  "version": "1.13.5",
+  "version": "1.13.500",
   "description": "TypeScript port of yojimbo (with netcode, reliable and serialize) for Node and the browser",
+  "keywords": [
+    "yojimbo",
+    "netcode",
+    "reliable",
+    "networking",
+    "udp",
+    "webrtc",
+    "game",
+    "multiplayer",
+    "client-server"
+  ],
   "license": "BSD-3-Clause",
-  "repository": { "type": "git", "url": "git+https://github.com/netcode-io/yojimbo.git", "directory": "ts" },
+  "author": "Glenn Fiedler (original C/C++); TypeScript port by Sky Morey",
+  "homepage": "https://github.com/netcode-io/yojimbo/tree/master/ts#readme",
+  "bugs": {
+    "url": "https://github.com/netcode-io/yojimbo/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/netcode-io/yojimbo.git",
+    "directory": "ts"
+  },
   "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/source/yojimbo.d.ts",
+      "default": "./dist/source/yojimbo.js"
+    },
+    "./netcode": {
+      "types": "./dist/netcode/netcode.d.ts",
+      "default": "./dist/netcode/netcode.js"
+    },
+    "./reliable": {
+      "types": "./dist/reliable/reliable.d.ts",
+      "default": "./dist/reliable/reliable.js"
+    },
+    "./serialize": {
+      "types": "./dist/serialize/serialize.d.ts",
+      "default": "./dist/serialize/serialize.js"
+    },
+    "./sodium": {
+      "types": "./dist/sodium/sodium.d.ts",
+      "default": "./dist/sodium/sodium.js"
+    },
+    "./webrtc/client": {
+      "types": "./dist/webrtc/webrtc_client.d.ts",
+      "default": "./dist/webrtc/webrtc_client.js"
+    },
+    "./webrtc/server": {
+      "types": "./dist/webrtc/webrtc_server.d.ts",
+      "default": "./dist/webrtc/webrtc_server.js"
+    },
+    "./webrtc/token": {
+      "types": "./dist/webrtc/webrtc_token.d.ts",
+      "default": "./dist/webrtc/webrtc_token.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "types": "./dist/source/yojimbo.d.ts",
+  "sideEffects": false,
+  "files": [
+    "dist/source/",
+    "dist/include/",
+    "dist/netcode/",
+    "dist/reliable/",
+    "dist/serialize/",
+    "dist/sodium/",
+    "dist/webrtc/webrtc_client.*",
+    "dist/webrtc/webrtc_server.*",
+    "dist/webrtc/webrtc_token.*",
+    "LICENCE"
+  ],
   "engines": {
     "node": ">=24"
   },
@@ -12,7 +81,9 @@
     "test": "node test.ts",
     "test:webrtc": "node webrtc/webrtc_test.ts",
     "typecheck": "tsc --noEmit -p .",
-    "build": "tsc -p tsconfig.build.json",
+    "clean": "node -e \"require('node:fs').rmSync('dist', { recursive: true, force: true })\"",
+    "build": "npm run clean && tsc -p tsconfig.build.json",
+    "prepack": "npm run build && node -e \"require('node:fs').copyFileSync('../LICENCE', 'LICENCE')\"",
     "demo:webrtc": "npm run build && node webrtc/demo/server.ts"
   },
   "peerDependencies": {
@@ -27,5 +98,9 @@
     "@types/node": "^24.0.0",
     "node-datachannel": "^0.33.4",
     "typescript": "^5.9.0"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
   }
 }

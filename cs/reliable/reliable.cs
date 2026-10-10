@@ -184,7 +184,12 @@ namespace networkprotocol
         [InterpolatedStringHandler]
         internal ref struct printf_handler
         {
+#if NETSTANDARD
+            // .NET Standard has no DefaultInterpolatedStringHandler: same laziness, built with a StringBuilder
+            System.Text.StringBuilder builder;
+#else
             DefaultInterpolatedStringHandler builder;
+#endif
             internal readonly bool enabled;
 
             public printf_handler(int literalLength, int formattedCount, int level, out bool shouldAppend)
@@ -195,14 +200,31 @@ namespace networkprotocol
                 enabled = false;
 #endif
                 shouldAppend = enabled;
+#if NETSTANDARD
+                builder = enabled ? new System.Text.StringBuilder(literalLength + formattedCount * 11) : null;
+#else
                 builder = enabled ? new DefaultInterpolatedStringHandler(literalLength, formattedCount) : default;
+#endif
             }
 
+#if NETSTANDARD
+            public void AppendLiteral(string value) => builder.Append(value);
+            public void AppendFormatted<T>(T value) => builder.Append(value?.ToString());
+            public void AppendFormatted<T>(T value, string format) =>
+                builder.Append(value is IFormattable formattable ? formattable.ToString(format, null) : value?.ToString());
+            public void AppendFormatted<T>(T value, int alignment)
+            {
+                var text = value?.ToString() ?? "";
+                builder.Append(alignment < 0 ? text.PadRight(-alignment) : text.PadLeft(alignment));
+            }
+            internal string to_string_and_clear() { var text = builder.ToString(); builder.Clear(); return text; }
+#else
             public void AppendLiteral(string value) => builder.AppendLiteral(value);
             public void AppendFormatted<T>(T value) => builder.AppendFormatted(value);
             public void AppendFormatted<T>(T value, string format) => builder.AppendFormatted(value, format);
             public void AppendFormatted<T>(T value, int alignment) => builder.AppendFormatted(value, alignment);
             internal string to_string_and_clear() => builder.ToStringAndClear();
+#endif
         }
 
         static object default_allocate_function(object context, ulong bytes) => null;

@@ -44,6 +44,15 @@ jobs:
         run: dotnet cs/bin/custom_packet_io_test/${{ matrix.configuration }}/custom_packet_io_test.dll
       - name: fuzz corpus regression
         run: dotnet cs/bin/fuzz/${{ matrix.configuration }}/fuzz.dll
+      # the library also targets netstandard2.1 (Unity): run the same tests against that build, in its own output folder
+      - name: test (netstandard2.1 library)
+        shell: bash
+        run: |
+          root="${{ runner.temp }}/ns21/"
+          dotnet build cs/test.csproj -c ${{ matrix.configuration }} -p:YojimboTargetFramework=netstandard2.1 -p:BuildRoot="$root"
+          dotnet build cs/custom_packet_io_test.csproj -c ${{ matrix.configuration }} -p:YojimboTargetFramework=netstandard2.1 -p:BuildRoot="$root"
+          dotnet "${root}bin/test/${{ matrix.configuration }}/test.dll"
+          dotnet "${root}bin/custom_packet_io_test/${{ matrix.configuration }}/custom_packet_io_test.dll"
       - name: upload fuzz crash inputs
         if: failure()
         uses: actions/upload-artifact@v4

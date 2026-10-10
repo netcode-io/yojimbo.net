@@ -2635,8 +2635,10 @@ public static class test
         class SerializePrimitivesObject : Serializable
         {
             public long i64;
+#if !YOJIMBO_NETSTANDARD // Int128/UInt128 are .NET 7+
             public Int128 i128;
             public UInt128 u128;
+#endif
             public ulong bits64;
             public ulong bits40;
             public float cf;
@@ -2651,8 +2653,10 @@ public static class test
             public override bool Serialize(BaseStream stream)
             {
                 if (!stream.serialize_int64(ref i64, long.MinValue, long.MaxValue)) return false;
+#if !YOJIMBO_NETSTANDARD // Int128/UInt128 are .NET 7+
                 if (!stream.serialize_int128(ref i128, Int128.MinValue / 2, Int128.MaxValue / 3)) return false;
                 if (!stream.serialize_uint128(ref u128)) return false;
+#endif
                 if (!stream.serialize_bits(ref bits64, 64)) return false;
                 if (!stream.serialize_bits(ref bits40, 40)) return false;
                 if (!stream.serialize_compressed_float(ref cf, -100.0f, 100.0f, 0.01f)) return false;
@@ -2674,8 +2678,10 @@ public static class test
             var write = new SerializePrimitivesObject
             {
                 i64 = -1234567890123456789L,
+#if !YOJIMBO_NETSTANDARD // Int128/UInt128 are .NET 7+
                 i128 = Int128.MinValue / 3,
                 u128 = UInt128.MaxValue - 12345,
+#endif
                 bits64 = 0xFEDCBA9876543210UL,
                 bits40 = 0xAB_CDEF_0123UL,
                 cf = 12.345f,
@@ -2703,8 +2709,10 @@ public static class test
             check(read.Serialize(readStream));
 
             check(read.i64 == write.i64);
+#if !YOJIMBO_NETSTANDARD // Int128/UInt128 are .NET 7+
             check(read.i128 == write.i128);
             check(read.u128 == write.u128);
+#endif
             check(read.bits64 == write.bits64);
             check(read.bits40 == write.bits40);
             check(Math.Abs(read.cf - write.cf) <= 0.01f);

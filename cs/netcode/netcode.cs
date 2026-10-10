@@ -5372,7 +5372,7 @@ namespace networkprotocol
                 check(address.port == 0);
                 check(BufferEx.Equal(address.data.GetAddressBytes(), new ushort[] {
                     0xfe80, 0x0000, 0x0000, 0x0000, 0x0202, 0xb3ff, 0xfe1e, 0x8329
-                }.SelectMany(z => BitConverter.GetBytes(z).Reverse()).ToArray(), 16));
+                }.SelectMany(z => Enumerable.Reverse(BitConverter.GetBytes(z))).ToArray(), 16));
             }
 
             {
@@ -5381,7 +5381,7 @@ namespace networkprotocol
                 check(address.port == 0);
                 check(BufferEx.Equal(address.data.GetAddressBytes(), new ushort[] {
                     0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000
-                }.SelectMany(z => BitConverter.GetBytes(z).Reverse()).ToArray(), 16));
+                }.SelectMany(z => Enumerable.Reverse(BitConverter.GetBytes(z))).ToArray(), 16));
             }
 
             {
@@ -5390,7 +5390,7 @@ namespace networkprotocol
                 check(address.port == 0);
                 check(BufferEx.Equal(address.data.GetAddressBytes(), new ushort[] {
                     0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0001
-                }.SelectMany(z => BitConverter.GetBytes(z).Reverse()).ToArray(), 16));
+                }.SelectMany(z => Enumerable.Reverse(BitConverter.GetBytes(z))).ToArray(), 16));
             }
 
             {
@@ -5399,7 +5399,7 @@ namespace networkprotocol
                 check(address.port == 40000);
                 check(BufferEx.Equal(address.data.GetAddressBytes(), new ushort[] {
                     0xfe80, 0x0000, 0x0000, 0x0000, 0x0202, 0xb3ff, 0xfe1e, 0x8329
-                }.SelectMany(z => BitConverter.GetBytes(z).Reverse()).ToArray(), 16));
+                }.SelectMany(z => Enumerable.Reverse(BitConverter.GetBytes(z))).ToArray(), 16));
             }
 
             {
@@ -5408,7 +5408,7 @@ namespace networkprotocol
                 check(address.port == 40000);
                 check(BufferEx.Equal(address.data.GetAddressBytes(), new ushort[] {
                     0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000
-                }.SelectMany(z => BitConverter.GetBytes(z).Reverse()).ToArray(), 16));
+                }.SelectMany(z => Enumerable.Reverse(BitConverter.GetBytes(z))).ToArray(), 16));
             }
 
             {
@@ -5417,7 +5417,7 @@ namespace networkprotocol
                 check(address.port == 40000);
                 check(BufferEx.Equal(address.data.GetAddressBytes(), new ushort[] {
                     0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0001
-                }.SelectMany(z => BitConverter.GetBytes(z).Reverse()).ToArray(), 16));
+                }.SelectMany(z => Enumerable.Reverse(BitConverter.GetBytes(z))).ToArray(), 16));
             }
 
             // ports must be all digits in [0,65535]. out of range and non-numeric ports must not silently truncate

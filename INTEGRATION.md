@@ -6,17 +6,20 @@ How to use the C# and TypeScript ports of yojimbo in a game or service. The exam
 
 | You are building | Use |
 |---|---|
-| a .NET game client or dedicated server (Unity, Godot C#, plain .NET 10) | `cs/`, the `yojimbo` NuGet package |
+| a .NET game client or dedicated server (.NET 10, Godot C#, Unity and anything else that takes .NET Standard 2.1) | `cs/`, the `yojimbo` NuGet package (`net10.0` and `netstandard2.1`) |
 | a Node game server, tools or bots | `ts/` on Node 24+ (native UDP), the `yojimbo2` npm package |
 | a browser client | `ts/` (`yojimbo2`) in the browser, over WebRTC through a Node server running `ts/webrtc/webrtc_server.ts` |
 
 All three implementations interoperate: C++, C# and TypeScript speak the same wire protocol (`NETCODE 1.02`), so any client can connect to any server. `interop/run.sh` checks all nine pairings. A mixed deployment works as long as both sides agree on the things listed in [What both ends must agree on](#what-both-ends-must-agree-on).
 
-Until packages are published, reference the source:
+Install:
 
-- **C#:** add `<ProjectReference Include="path/to/cs/yojimbo.csproj" />`. `dotnet pack cs/yojimbo.csproj -c Release` builds the `yojimbo` package locally.
-- **TypeScript on Node:** `import { ... } from 'path/to/ts/source/yojimbo.ts'`. Node 24 runs the `.ts` sources directly.
-- **TypeScript in the browser:** run `npm run build` in `ts/` and import the ES modules from `ts/dist/`, or point your bundler at the sources.
+- **C#:** `dotnet add package yojimbo`, then `using networkprotocol; using static networkprotocol.yojimbo;`. Or reference the source: `<ProjectReference Include="path/to/cs/yojimbo.csproj" />`.
+- **TypeScript:** `npm install yojimbo2`, then `import { ... } from 'yojimbo2'`. Plain `yojimbo` is a different package on npm. Subpaths: `yojimbo2/webrtc/client`, `yojimbo2/webrtc/server`, `yojimbo2/webrtc/token`, `yojimbo2/netcode`, `yojimbo2/reliable`, `yojimbo2/serialize`, `yojimbo2/sodium`. The package is ES modules with type definitions and works with Node 24+ and with browser bundlers. To work from the source instead, import `path/to/ts/source/yojimbo.ts`: Node 24 runs the `.ts` files directly.
+
+Package versions follow upstream yojimbo. NuGet `1.13.5` and npm `1.13.500` are the port of upstream 1.13.5. A fix made in the port between upstream releases adds a revision: NuGet `1.13.5.1`, npm `1.13.501`.
+
+The examples below import from the repository sources. With the packages installed, change the import to `'yojimbo2'` (TypeScript); the C# code is the same either way.
 
 ## The model
 
@@ -325,6 +328,10 @@ For local development, `client.InsecureConnect(privateKey, clientId, serverAddre
 - **Time:** pass the same monotonic clock (seconds, as a double) to `AdvanceTime` every frame: `yojimbo.time()` or `yojimbo_time()`. Don't use wall-clock time.
 - **Node sockets need the event loop.** UDP and WebRTC packets arrive only while it runs. On Windows, Node reads one datagram per socket per event-loop turn, so a busy server should sleep a real frame each tick, not spin.
 - **Threads:** keep each client or server on one thread or event loop.
+- **.NET Standard 2.1** (Unity and similar):
+  - The 128-bit serialize primitives (`serialize_int128`, `serialize_uint128`, 128-bit fixed point) are not available there, because `Int128` needs .NET 7.
+  - IPv6 packet tagging needs .NET 5+, so on Unity's Mono, `EnablePacketTagging` makes IPv6 socket creation fail; leave tagging off there.
+  - The full test suite passes against the `netstandard2.1` build on .NET. Unity itself is not covered by CI.
 - **Message sizes:** messages larger than the channel allows are rejected (`CHANNEL_ERROR_MESSAGE_TOO_LARGE`). Send large payloads as blocks, or raise `maxPacketSize`/fragment settings on both ends.
 - **Disconnect reasons:** `client.GetDisconnectReason()` and `server.GetClientDisconnectReason(clientIndex)`, with the `Get*DisconnectReasonString` helpers, tell you why a connection ended. `GetNetworkInfo` gives RTT, jitter, packet loss and bandwidth.
 
