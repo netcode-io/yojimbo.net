@@ -220,7 +220,7 @@ export class netcode_client_config_t
 export class netcode_server_config_t
 {
     protocol_id = 0n;
-    private_key = new Uint8Array( NETCODE_KEY_BYTES );
+    private_key: Uint8Array = new Uint8Array( NETCODE_KEY_BYTES );
     allocator_context: unknown = null;
     allocate_function: netcode_allocate_function_t | null = null;
     free_function: netcode_free_function_t | null = null;
@@ -1588,9 +1588,9 @@ export class netcode_connect_token_private_t
     timeout_seconds = 0;
     num_server_addresses = 0;
     server_addresses: netcode_address_t[] = netcode_address_array( NETCODE_MAX_SERVERS_PER_CONNECT );
-    client_to_server_key = new Uint8Array( NETCODE_KEY_BYTES );
-    server_to_client_key = new Uint8Array( NETCODE_KEY_BYTES );
-    user_data = new Uint8Array( NETCODE_USER_DATA_BYTES );
+    client_to_server_key: Uint8Array = new Uint8Array( NETCODE_KEY_BYTES );
+    server_to_client_key: Uint8Array = new Uint8Array( NETCODE_KEY_BYTES );
+    user_data: Uint8Array = new Uint8Array( NETCODE_USER_DATA_BYTES );
 }
 
 export function netcode_generate_connect_token_private( connect_token: netcode_connect_token_private_t,
@@ -1793,7 +1793,7 @@ export function netcode_read_connect_token_private( buffer: Uint8Array, buffer_l
 export class netcode_challenge_token_t
 {
     client_id = 0n;
-    user_data = new Uint8Array( NETCODE_USER_DATA_BYTES );
+    user_data: Uint8Array = new Uint8Array( NETCODE_USER_DATA_BYTES );
 }
 
 export function netcode_write_challenge_token( challenge_token: netcode_challenge_token_t, buffer: Uint8Array, buffer_length: number ): void
@@ -1877,11 +1877,11 @@ export const NETCODE_CONNECTION_NUM_PACKETS = 7;
 export class netcode_connection_request_packet_t
 {
     packet_type = NETCODE_CONNECTION_REQUEST_PACKET;
-    version_info = new Uint8Array( NETCODE_VERSION_INFO_BYTES );
+    version_info: Uint8Array = new Uint8Array( NETCODE_VERSION_INFO_BYTES );
     protocol_id = 0n;
     connect_token_expire_timestamp = 0n;
-    connect_token_nonce = new Uint8Array( NETCODE_CONNECT_TOKEN_NONCE_BYTES );
-    connect_token_data = new Uint8Array( NETCODE_CONNECT_TOKEN_PRIVATE_BYTES );
+    connect_token_nonce: Uint8Array = new Uint8Array( NETCODE_CONNECT_TOKEN_NONCE_BYTES );
+    connect_token_data: Uint8Array = new Uint8Array( NETCODE_CONNECT_TOKEN_PRIVATE_BYTES );
 }
 
 export class netcode_connection_denied_packet_t
@@ -1893,14 +1893,14 @@ export class netcode_connection_challenge_packet_t
 {
     packet_type = NETCODE_CONNECTION_CHALLENGE_PACKET;
     challenge_token_sequence = 0n;
-    challenge_token_data = new Uint8Array( NETCODE_CHALLENGE_TOKEN_BYTES );
+    challenge_token_data: Uint8Array = new Uint8Array( NETCODE_CHALLENGE_TOKEN_BYTES );
 }
 
 export class netcode_connection_response_packet_t
 {
     packet_type = NETCODE_CONNECTION_RESPONSE_PACKET;
     challenge_token_sequence = 0n;
-    challenge_token_data = new Uint8Array( NETCODE_CHALLENGE_TOKEN_BYTES );
+    challenge_token_data: Uint8Array = new Uint8Array( NETCODE_CHALLENGE_TOKEN_BYTES );
 }
 
 export class netcode_connection_keep_alive_packet_t
@@ -1971,8 +1971,8 @@ export function netcode_create_payload_packet( payload_bytes: number, allocator_
 
 export class netcode_context_t
 {
-    write_packet_key = new Uint8Array( NETCODE_KEY_BYTES );
-    read_packet_key = new Uint8Array( NETCODE_KEY_BYTES );
+    write_packet_key: Uint8Array = new Uint8Array( NETCODE_KEY_BYTES );
+    read_packet_key: Uint8Array = new Uint8Array( NETCODE_KEY_BYTES );
 }
 
 export function netcode_sequence_number_bytes_required( sequence: bigint ): number
@@ -2205,7 +2205,7 @@ export function netcode_write_packet( packet: netcode_packet_t, buffer: Uint8Arr
 export class netcode_replay_protection_t
 {
     most_recent_sequence = 0n;
-    received_packet = new BigUint64Array( NETCODE_REPLAY_PROTECTION_BUFFER_SIZE );
+    received_packet: BigUint64Array = new BigUint64Array( NETCODE_REPLAY_PROTECTION_BUFFER_SIZE );
 }
 
 const NETCODE_UINT64_MAX = 0xFFFFFFFFFFFFFFFFn;
@@ -2635,17 +2635,17 @@ export function netcode_read_packet( buffer: Uint8Array,
 
 export class netcode_connect_token_t
 {
-    version_info = new Uint8Array( NETCODE_VERSION_INFO_BYTES );
+    version_info: Uint8Array = new Uint8Array( NETCODE_VERSION_INFO_BYTES );
     protocol_id = 0n;
     create_timestamp = 0n;
     expire_timestamp = 0n;
-    nonce = new Uint8Array( NETCODE_CONNECT_TOKEN_NONCE_BYTES );
-    private_data = new Uint8Array( NETCODE_CONNECT_TOKEN_PRIVATE_BYTES );
+    nonce: Uint8Array = new Uint8Array( NETCODE_CONNECT_TOKEN_NONCE_BYTES );
+    private_data: Uint8Array = new Uint8Array( NETCODE_CONNECT_TOKEN_PRIVATE_BYTES );
     timeout_seconds = 0;
     num_server_addresses = 0;
     server_addresses: netcode_address_t[] = netcode_address_array( NETCODE_MAX_SERVERS_PER_CONNECT );
-    client_to_server_key = new Uint8Array( NETCODE_KEY_BYTES );
-    server_to_client_key = new Uint8Array( NETCODE_KEY_BYTES );
+    client_to_server_key: Uint8Array = new Uint8Array( NETCODE_KEY_BYTES );
+    server_to_client_key: Uint8Array = new Uint8Array( NETCODE_KEY_BYTES );
 }
 
 /** sodium_memzero( connect_token, sizeof( struct netcode_connect_token_t ) ) */
@@ -2819,7 +2819,7 @@ export class netcode_packet_queue_t
     num_packets = 0;
     start_index = 0;
     packet_data: unknown[] = new Array<unknown>( NETCODE_PACKET_QUEUE_SIZE ).fill( null );
-    packet_sequence = new BigUint64Array( NETCODE_PACKET_QUEUE_SIZE );
+    packet_sequence: BigUint64Array = new BigUint64Array( NETCODE_PACKET_QUEUE_SIZE );
 }
 
 export function netcode_packet_queue_init( queue: netcode_packet_queue_t,
@@ -3300,14 +3300,14 @@ export class netcode_client_t
     replay_protection = new netcode_replay_protection_t();
     packet_receive_queue = new netcode_packet_queue_t();
     challenge_token_sequence = 0n;
-    challenge_token_data = new Uint8Array( NETCODE_CHALLENGE_TOKEN_BYTES );
+    challenge_token_data: Uint8Array = new Uint8Array( NETCODE_CHALLENGE_TOKEN_BYTES );
     receive_packet_data: ( Uint8Array | null )[] = new Array<Uint8Array | null>( NETCODE_CLIENT_MAX_RECEIVE_PACKETS ).fill( null );
-    receive_packet_bytes = new Int32Array( NETCODE_CLIENT_MAX_RECEIVE_PACKETS );
+    receive_packet_bytes: Int32Array = new Int32Array( NETCODE_CLIENT_MAX_RECEIVE_PACKETS );
     receive_from: netcode_address_t[] = new Array<netcode_address_t>( NETCODE_CLIENT_MAX_RECEIVE_PACKETS );
     loopback = 0;
     // scratch buffers (C keeps these on the stack)
-    packet_buffer = new Uint8Array( NETCODE_MAX_PACKET_BYTES );
-    receive_buffer = new Uint8Array( NETCODE_MAX_PACKET_BYTES );
+    packet_buffer: Uint8Array = new Uint8Array( NETCODE_MAX_PACKET_BYTES );
+    receive_buffer: Uint8Array = new Uint8Array( NETCODE_MAX_PACKET_BYTES );
     receive_address = new netcode_address_t();
     payload_packet = new netcode_connection_payload_packet_t();
 }
@@ -4183,14 +4183,14 @@ export const NETCODE_MAX_ENCRYPTION_MAPPINGS = NETCODE_MAX_CLIENTS * 4;
 export class netcode_encryption_manager_t
 {
     num_encryption_mappings = 0;
-    timeout = new Int32Array( NETCODE_MAX_ENCRYPTION_MAPPINGS );
-    expire_time = new Float64Array( NETCODE_MAX_ENCRYPTION_MAPPINGS );
-    last_access_time = new Float64Array( NETCODE_MAX_ENCRYPTION_MAPPINGS );
+    timeout: Int32Array = new Int32Array( NETCODE_MAX_ENCRYPTION_MAPPINGS );
+    expire_time: Float64Array = new Float64Array( NETCODE_MAX_ENCRYPTION_MAPPINGS );
+    last_access_time: Float64Array = new Float64Array( NETCODE_MAX_ENCRYPTION_MAPPINGS );
     address: netcode_address_t[] = netcode_address_array( NETCODE_MAX_ENCRYPTION_MAPPINGS );
-    client_index = new Int32Array( NETCODE_MAX_ENCRYPTION_MAPPINGS );
-    connect_token_entry_index = new Int32Array( NETCODE_MAX_ENCRYPTION_MAPPINGS );
-    send_key = new Uint8Array( NETCODE_KEY_BYTES * NETCODE_MAX_ENCRYPTION_MAPPINGS );
-    receive_key = new Uint8Array( NETCODE_KEY_BYTES * NETCODE_MAX_ENCRYPTION_MAPPINGS );
+    client_index: Int32Array = new Int32Array( NETCODE_MAX_ENCRYPTION_MAPPINGS );
+    connect_token_entry_index: Int32Array = new Int32Array( NETCODE_MAX_ENCRYPTION_MAPPINGS );
+    send_key: Uint8Array = new Uint8Array( NETCODE_KEY_BYTES * NETCODE_MAX_ENCRYPTION_MAPPINGS );
+    receive_key: Uint8Array = new Uint8Array( NETCODE_KEY_BYTES * NETCODE_MAX_ENCRYPTION_MAPPINGS );
 }
 
 export function netcode_encryption_manager_reset( encryption_manager: netcode_encryption_manager_t ): void
@@ -4393,7 +4393,7 @@ export class netcode_connect_token_entry_t
     state = NETCODE_CONNECT_TOKEN_ENTRY_FREE;
     time = 0.0;                    // server time the entry was created. never refreshed afterwards
     expire_timestamp = 0n;         // when the connect token expires, and with it this entry
-    mac = new Uint8Array( NETCODE_MAC_BYTES );
+    mac: Uint8Array = new Uint8Array( NETCODE_MAC_BYTES );
     address = new netcode_address_t();
 }
 
@@ -4620,17 +4620,17 @@ export class netcode_server_t
     global_sequence = 0n;
     challenge_sequence = 0n;
     min_connect_token_expire_timestamp = 0n;
-    challenge_key = new Uint8Array( NETCODE_KEY_BYTES );
-    client_connected = new Int32Array( NETCODE_MAX_CLIENTS );
-    client_timeout = new Int32Array( NETCODE_MAX_CLIENTS );
-    client_loopback = new Int32Array( NETCODE_MAX_CLIENTS );
-    client_confirmed = new Int32Array( NETCODE_MAX_CLIENTS );
-    client_disconnect_reason = new Int32Array( NETCODE_MAX_CLIENTS );
-    client_encryption_index = new Int32Array( NETCODE_MAX_CLIENTS );
-    client_id = new BigUint64Array( NETCODE_MAX_CLIENTS );
-    client_sequence = new BigUint64Array( NETCODE_MAX_CLIENTS );
-    client_last_packet_send_time = new Float64Array( NETCODE_MAX_CLIENTS );
-    client_last_packet_receive_time = new Float64Array( NETCODE_MAX_CLIENTS );
+    challenge_key: Uint8Array = new Uint8Array( NETCODE_KEY_BYTES );
+    client_connected: Int32Array = new Int32Array( NETCODE_MAX_CLIENTS );
+    client_timeout: Int32Array = new Int32Array( NETCODE_MAX_CLIENTS );
+    client_loopback: Int32Array = new Int32Array( NETCODE_MAX_CLIENTS );
+    client_confirmed: Int32Array = new Int32Array( NETCODE_MAX_CLIENTS );
+    client_disconnect_reason: Int32Array = new Int32Array( NETCODE_MAX_CLIENTS );
+    client_encryption_index: Int32Array = new Int32Array( NETCODE_MAX_CLIENTS );
+    client_id: BigUint64Array = new BigUint64Array( NETCODE_MAX_CLIENTS );
+    client_sequence: BigUint64Array = new BigUint64Array( NETCODE_MAX_CLIENTS );
+    client_last_packet_send_time: Float64Array = new Float64Array( NETCODE_MAX_CLIENTS );
+    client_last_packet_receive_time: Float64Array = new Float64Array( NETCODE_MAX_CLIENTS );
     client_user_data: Uint8Array[];
     client_replay_protection: netcode_replay_protection_t[];
     client_packet_queue: netcode_packet_queue_t[];
@@ -4638,11 +4638,11 @@ export class netcode_server_t
     connect_token_entries: netcode_connect_token_entry_t[] = netcode_connect_token_entries_create();
     encryption_manager = new netcode_encryption_manager_t();
     receive_packet_data: ( Uint8Array | null )[] = new Array<Uint8Array | null>( NETCODE_SERVER_MAX_RECEIVE_PACKETS ).fill( null );
-    receive_packet_bytes = new Int32Array( NETCODE_SERVER_MAX_RECEIVE_PACKETS );
+    receive_packet_bytes: Int32Array = new Int32Array( NETCODE_SERVER_MAX_RECEIVE_PACKETS );
     receive_from: netcode_address_t[] = new Array<netcode_address_t>( NETCODE_SERVER_MAX_RECEIVE_PACKETS );
     // scratch buffers (C keeps these on the stack)
-    packet_buffer = new Uint8Array( NETCODE_MAX_PACKET_BYTES );
-    receive_buffer = new Uint8Array( NETCODE_MAX_PACKET_BYTES );
+    packet_buffer: Uint8Array = new Uint8Array( NETCODE_MAX_PACKET_BYTES );
+    receive_buffer: Uint8Array = new Uint8Array( NETCODE_MAX_PACKET_BYTES );
     receive_address = new netcode_address_t();
     payload_packet = new netcode_connection_payload_packet_t();
 
@@ -9316,7 +9316,7 @@ class test_wire_t
     shutting_down = 0;
     drop_server_packets = 0;
     num_connection_requests = 0;
-    payload_packet = new Uint8Array( NETCODE_MAX_PACKET_BYTES );
+    payload_packet: Uint8Array = new Uint8Array( NETCODE_MAX_PACKET_BYTES );
     payload_packet_bytes = 0;
 }
 

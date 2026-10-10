@@ -11,6 +11,7 @@
   "exclude": [
     "node_modules",
     "dist",
+    "consumer_test",
     "test.ts",
     "custom_packet_io_test.ts",
     "webrtc/webrtc_test.ts",

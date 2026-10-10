@@ -1,6 +1,6 @@
 # yojimbo (TypeScript)
 
-npm package: `yojimbo2` (plain `yojimbo` is taken on npm by an unrelated package). Install it with `npm install yojimbo2`, then `import { Client, Server, ... } from 'yojimbo2'`. Subpath entry points: `yojimbo2/webrtc/client`, `yojimbo2/webrtc/server`, `yojimbo2/webrtc/server-http` (Node), `yojimbo2/webrtc/token`, `yojimbo2/netcode`, `yojimbo2/reliable`, `yojimbo2/serialize`, `yojimbo2/sodium`. Versions (shared with the NuGet package) mirror upstream yojimbo with a port revision folded into the patch: `1.13.500` is upstream 1.13.5, and `1.13.501` is the first port fix on top of it. See the root README.
+npm package: `yojimbo2` (plain `yojimbo` is taken on npm by an unrelated package). Install it with `npm install yojimbo2`, then `import { Client, Server, ... } from 'yojimbo2'`. TypeScript consumers need TypeScript 5.0 or later. Subpath entry points: `yojimbo2/webrtc/client`, `yojimbo2/webrtc/server`, `yojimbo2/webrtc/server-http` (Node), `yojimbo2/webrtc/token`, `yojimbo2/netcode`, `yojimbo2/reliable`, `yojimbo2/serialize`, `yojimbo2/sodium`. Versions (shared with the NuGet package) mirror upstream yojimbo with a port revision folded into the patch: `1.13.500` is upstream 1.13.5, and `1.13.501` is the first port fix on top of it. See the root README.
 
 TypeScript port of yojimbo 1.13.5, with netcode 1.4.8, reliable 1.4.5, serialize and the libsodium subset netcode uses. One codebase runs on Node (24+) and in the browser.
 

@@ -27,6 +27,7 @@ dotnet cs/bin/custom_packet_io_test/Debug/custom_packet_io_test.dll
 dotnet cs/bin/fuzz/Debug/fuzz.dll                             # upstream fuzz corpus replay + seeded mutation
 cd ts && npm ci && npm test                                   # 212 tests (node test.ts)
 cd ts && npm run typecheck && npm run build && npm run test:webrtc && npm run test:bundle
+cd ts && npm run test:declarations                             # packed declarations type-check on TypeScript 5.0 and latest
 cd ts && npx playwright-core install --only-shell chromium && npm run test:browser   # server hosted in headless Chromium
 interop/run.sh                                                # needs cc/c++, .NET 10, Node 24
 ```
@@ -46,6 +47,7 @@ interop/run.sh                                                # needs cc/c++, .N
   - Relative imports use the `.ts` extension.
   - Integers up to 32 bits are `number`; 64-bit values are `bigint`.
   - Serialize calls use the slot API, `serialize_x(stream, obj, 'field', ...)`.
+  - Consumers need TypeScript 5.0 or later. Give typed-array class fields an explicit type (`key: Uint8Array = new Uint8Array( 32 )`). Inferred, they emit `Uint8Array<ArrayBuffer>` into the declarations, which needs TypeScript 5.7. `npm run test:declarations` guards this.
   - No `node:` imports outside the platform seams: netcode's dgram socket layer loads through `process.getBuiltinModule`, and `webrtc_server_http.ts` is Node-only. `webrtc_server.ts` must stay browser-bundleable and its declarations DOM-free (`npm run test:bundle` checks the bundle).
 - **Node event loop:** sockets deliver only while the event loop runs. Node reads at most 32 datagrams per socket per turn on macOS and Linux, and one on Windows. Loops over real sockets must await between frames, and test pumps yield a fixed number of turns (see `PumpEventLoopTurns` in `ts/test.ts`).
 

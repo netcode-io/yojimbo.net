@@ -69,8 +69,8 @@ export type AddressType = typeof ADDRESS_NONE | typeof ADDRESS_IPV4 | typeof ADD
 export class Address
 {
     private m_type: AddressType = ADDRESS_NONE;                     ///< The address type: IPv4 or IPv6.
-    private m_ipv4 = new Uint8Array( 4 );                           ///< IPv4 address data. Valid if type is ADDRESS_IPV4.
-    private m_ipv6 = new Uint16Array( 8 );                          ///< IPv6 address data (local byte order). Valid if type is ADDRESS_IPV6.
+    private m_ipv4: Uint8Array = new Uint8Array( 4 );                           ///< IPv4 address data. Valid if type is ADDRESS_IPV4.
+    private m_ipv6: Uint16Array = new Uint16Array( 8 );                          ///< IPv6 address data (local byte order). Valid if type is ADDRESS_IPV6.
     private m_port = 0;                                             ///< The IP port. Valid for IPv4 and IPv6 address types.
 
     constructor( ...args: Array<number | string | ArrayLike<number>> )

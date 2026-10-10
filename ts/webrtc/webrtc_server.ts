@@ -263,7 +263,7 @@ export class WebRTCServerAdapter extends Adapter
     private m_udpFrom = new netcode_address_t();
     private m_udpTo = new netcode_address_t();
 
-    private m_prefix = new Uint16Array( 4 );
+    private m_prefix: Uint16Array = new Uint16Array( 4 );
     private m_nextPeerId = 1;
     private m_peers = new Map<number, WebRTCPeer>();
     private m_pendingCount = 0;

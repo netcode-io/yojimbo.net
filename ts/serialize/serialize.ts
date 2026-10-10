@@ -3423,7 +3423,7 @@ class TestData
     int_relative = 0;
     int64_full = 0n;
     int64_range = 0n;
-    bytes = new Uint8Array( 17 );
+    bytes: Uint8Array = new Uint8Array( 17 );
     string = '';
     wstring = '';
 }
@@ -5877,7 +5877,7 @@ class GoldenWireData
     uint64_value = 0n;
     relative_near = 0;
     relative_far = 0;
-    bytes = new Uint8Array( 7 );
+    bytes: Uint8Array = new Uint8Array( 7 );
     string = '';
     wstring = '';
     fixed_q8_8 = 0;                 // int16 storage

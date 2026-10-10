@@ -85,6 +85,7 @@ jobs:
           npm run test:webrtc
           npm run build
           npm run test:bundle
+          npm run test:declarations
       - name: interop
         run: interop/run.sh
 

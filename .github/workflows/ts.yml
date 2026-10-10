@@ -49,6 +49,9 @@ jobs:
         run: npm run build
       - name: browser bundle check (no node:*, no node-datachannel)
         run: npm run test:bundle
+      - name: declarations work on TypeScript 5.0 and latest
+        if: runner.os == 'Linux'
+        run: npm run test:declarations
       - name: webrtc test
         run: npm run test:webrtc
 

@@ -91,6 +91,7 @@
     "test": "node test.ts",
     "test:webrtc": "node webrtc/webrtc_test.ts",
     "test:bundle": "node webrtc/webrtc_bundle_test.ts",
+    "test:declarations": "node consumer_test/run.mjs",
     "test:browser": "node webrtc/webrtc_browser_test.ts",
     "typecheck": "tsc --noEmit -p .",
     "clean": "node -e \"require('node:fs').rmSync('dist', { recursive: true, force: true })\"",

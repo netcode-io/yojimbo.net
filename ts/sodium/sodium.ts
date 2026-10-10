@@ -484,11 +484,11 @@ const TWO32 = 4294967296;   // 2^32
 /** crypto_onetimeauth_poly1305_state (poly1305_state_internal_t) */
 export class crypto_onetimeauth_poly1305_state
 {
-    r = new Float64Array( 5 );
-    h = new Float64Array( 5 );
-    pad = new Float64Array( 4 );
+    r: Float64Array = new Float64Array( 5 );
+    h: Float64Array = new Float64Array( 5 );
+    pad: Float64Array = new Float64Array( 4 );
     leftover = 0;
-    buffer = new Uint8Array( 16 );
+    buffer: Uint8Array = new Uint8Array( 16 );
     final = 0;
 }
 
