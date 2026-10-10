@@ -6,7 +6,7 @@ C# and TypeScript ports of the yojimbo C++ network library (with netcode, reliab
 
 - `cpp/`: upstream yojimbo as a git submodule (`mas-bandwidth/yojimbo`, pinned at 1.13.5). The reference every port follows. Never edit it; to move to a new upstream version, bump the pin.
 - `cs/`: C# port, .NET 10. Library `cs/yojimbo.csproj` (NuGet id `yojimbo`), executables `test`, `custom_packet_io_test`, `fuzz`, `client`, `server`, `loopback` and `soak`, all in `cs/yojimbo.slnx`.
-- `ts/`: TypeScript port for Node 24+ and browsers. `ts/webrtc/` adds browser clients over WebRTC; it is an extension, not an upstream mirror.
+- `ts/`: TypeScript port for Node 24+ and browsers (npm package `yojimbo2`; plain `yojimbo` is taken on npm). `ts/webrtc/` adds browser clients over WebRTC; it is an extension, not an upstream mirror.
 - `interop/`: runs C++, C# and TypeScript against each other in all nine server/client pairings.
 
 ## Mirroring rules (keep them)

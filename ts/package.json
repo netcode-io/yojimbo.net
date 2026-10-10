@@ -1,8 +1,9 @@
 {
-  "name": "yojimbo",
+  "name": "yojimbo2",
   "version": "1.13.5",
   "description": "TypeScript port of yojimbo (with netcode, reliable and serialize) for Node and the browser",
   "license": "BSD-3-Clause",
+  "repository": { "type": "git", "url": "git+https://github.com/netcode-io/yojimbo.git", "directory": "ts" },
   "type": "module",
   "engines": {
     "node": ">=24"

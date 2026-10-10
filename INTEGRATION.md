@@ -7,8 +7,8 @@ How to use the C# and TypeScript ports of yojimbo in a game or service. The exam
 | You are building | Use |
 |---|---|
 | a .NET game client or dedicated server (Unity, Godot C#, plain .NET 10) | `cs/`, the `yojimbo` NuGet package |
-| a Node game server, tools or bots | `ts/` on Node 24+ (native UDP) |
-| a browser client | `ts/` in the browser, over WebRTC through a Node server running `ts/webrtc/webrtc_server.ts` |
+| a Node game server, tools or bots | `ts/` on Node 24+ (native UDP), the `yojimbo2` npm package |
+| a browser client | `ts/` (`yojimbo2`) in the browser, over WebRTC through a Node server running `ts/webrtc/webrtc_server.ts` |
 
 All three implementations interoperate: C++, C# and TypeScript speak the same wire protocol (`NETCODE 1.02`), so any client can connect to any server. `interop/run.sh` checks all nine pairings. A mixed deployment works as long as both sides agree on the things listed in [What both ends must agree on](#what-both-ends-must-agree-on).
 
