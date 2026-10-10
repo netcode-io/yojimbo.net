@@ -251,7 +251,7 @@ adapter.close();                                            // also closes the s
 await ShutdownWebRTC();                                     // otherwise node-datachannel keeps the process alive
 ```
 
-`yojimbo2/webrtc/server-http` is the Node HTTP layer and re-exports everything in `yojimbo2/webrtc/server`. Before this version the HTTP entry points were adapter methods: `adapter.listenSignaling( port, opts )` is now `ListenSignaling( adapter, port, opts )`, `adapter.handleSignal( req, res )` is `HandleSignal( adapter, req, res, opts )`, and the `cors`, `clientIp`, `maxBodyBytes` and `bodyTimeoutMs` options moved from the adapter to them.
+`yojimbo2/webrtc/server-http` is the Node HTTP layer (`ListenSignaling`, `HandleSignal`, with the HTTP options `cors`, `clientIp`, `maxBodyBytes`, `bodyTimeoutMs`) and re-exports everything in `yojimbo2/webrtc/server`.
 
 **Browser:**
 
