@@ -17,7 +17,7 @@
 
         GET  /                 the demo page (demo/index.html)
         GET  /dist/...         the built library (ts/dist)
-        POST /signal           WebRTC signaling (adapter.handleSignal)
+        POST /signal           WebRTC signaling (HandleSignal, webrtc_server_http.ts)
         GET  /token            DEV ONLY: issues a connect token to anyone who asks. A real deployment issues tokens
                                from its backend after authenticating the player.
 
@@ -31,7 +31,7 @@ import {
     YOJIMBO_LOG_LEVEL_ERROR, Server, MaxClients, KeyBytes, Allocator, MessageFactory, YOJIMBO_NEW, AddressFromNetcode,
 } from '../../source/yojimbo.ts';
 import { TestMessageFactory, ProtocolId } from '../../shared.ts';
-import { WebRTCServerAdapter, EncodeBase64, ShutdownWebRTC } from '../webrtc_server.ts';
+import { WebRTCServerAdapter, EncodeBase64, ShutdownWebRTC, HandleSignal } from '../webrtc_server_http.ts';
 import { CreateEchoConfig, EchoServerUpdate } from '../webrtc_echo.ts';
 
 const fs = process.getBuiltinModule( 'node:fs' );
@@ -144,7 +144,7 @@ async function main(): Promise<number>
 
         if ( pathname === '/signal' )
         {
-            void adapter.handleSignal( req, res );
+            void HandleSignal( adapter, req, res );
             return;
         }
 

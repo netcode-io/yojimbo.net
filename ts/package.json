@@ -59,6 +59,10 @@
       "types": "./dist/webrtc/webrtc_server.d.ts",
       "default": "./dist/webrtc/webrtc_server.js"
     },
+    "./webrtc/server-http": {
+      "types": "./dist/webrtc/webrtc_server_http.d.ts",
+      "default": "./dist/webrtc/webrtc_server_http.js"
+    },
     "./webrtc/token": {
       "types": "./dist/webrtc/webrtc_token.d.ts",
       "default": "./dist/webrtc/webrtc_token.js"
@@ -76,6 +80,7 @@
     "dist/sodium/",
     "dist/webrtc/webrtc_client.*",
     "dist/webrtc/webrtc_server.*",
+    "dist/webrtc/webrtc_server_http.*",
     "dist/webrtc/webrtc_token.*",
     "LICENCE"
   ],
@@ -85,6 +90,8 @@
   "scripts": {
     "test": "node test.ts",
     "test:webrtc": "node webrtc/webrtc_test.ts",
+    "test:bundle": "node webrtc/webrtc_bundle_test.ts",
+    "test:browser": "node webrtc/webrtc_browser_test.ts",
     "typecheck": "tsc --noEmit -p .",
     "clean": "node -e \"require('node:fs').rmSync('dist', { recursive: true, force: true })\"",
     "build": "npm run clean && tsc -p tsconfig.build.json",
@@ -101,7 +108,9 @@
   },
   "devDependencies": {
     "@types/node": "^24.0.0",
+    "esbuild": "0.28.2",
     "node-datachannel": "^0.33.4",
+    "playwright-core": "1.63.0",
     "typescript": "^5.9.0"
   },
   "publishConfig": {

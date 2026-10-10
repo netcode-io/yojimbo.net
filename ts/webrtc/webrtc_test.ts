@@ -18,7 +18,14 @@
       3. the WebRTC peer is released once its client disconnects;
       4. a peer that signals but never opens its channel is reaped, and a token cannot signal more than
          maxSignalsPerToken times;
-      5. dev path: a client mints its own token for signaling and connects with InsecureConnect.
+      5. dev path: a client mints its own token for signaling and connects with InsecureConnect;
+      6. the client adapter surfaces an HTTP signaling refusal;
+      7. accept() directly, on a second, WebRTC-only adapter (udp: false, as in a browser): a good token is
+         answered; bad / foreign / expired / overused / non-bytes tokens and bad offers are refused with
+         SignalError and no peer; per-IP caps key on request.ip and only the global caps apply without one;
+         aborted requests; pending peers reaped; every decision reported to onSignal;
+      8. no HTTP at all: a WebRTC client whose signal function calls adapter.accept() directly runs the echo
+         protocol alongside a UDP client, and a refusal from accept() fails connect() (state 'failed').
 */
 
 import { RTCPeerConnection as PolyfillRTCPeerConnection } from 'node-datachannel/polyfill';
@@ -28,8 +35,10 @@ import {
     GetClientDisconnectReasonString,
 } from '../source/yojimbo.ts';
 import { TestAdapter, TestMessageFactory, ProtocolId } from '../shared.ts';
-import { WebRTCClientAdapter, type RTCPeerConnectionConstructor } from './webrtc_client.ts';
-import { WebRTCServerAdapter, GenerateConnectToken, EncodeBase64, ShutdownWebRTC } from './webrtc_server.ts';
+import { WebRTCClientAdapter, type RTCPeerConnectionConstructor, type WebRTCSignal } from './webrtc_client.ts';
+import {
+    WebRTCServerAdapter, GenerateConnectToken, EncodeBase64, ShutdownWebRTC, ListenSignaling, SignalError,
+} from './webrtc_server_http.ts';
 import { CreateEchoConfig, EchoServerUpdate, EchoClient } from './webrtc_echo.ts';
 
 const RTCPeerConnection = PolyfillRTCPeerConnection as unknown as RTCPeerConnectionConstructor;
@@ -141,6 +150,21 @@ async function MakeOffer(): Promise<{ peer: RTCPeerConnection, sdp: string }>
     return { peer, sdp: peer.localDescription!.sdp };
 }
 
+/** accept() → its SignalError status (200 when it answers). */
+
+async function AcceptStatus( adapter: WebRTCServerAdapter, request: Parameters<WebRTCServerAdapter['accept']>[0] ): Promise<{ status: number, reason: string }>
+{
+    try
+    {
+        const answer = await adapter.accept( request );
+        return { status: answer.sdp.startsWith( 'v=0' ) ? 200 : -1, reason: 'ok' };
+    }
+    catch ( error )
+    {
+        return error instanceof SignalError ? { status: error.status, reason: error.message } : { status: -2, reason: String( error ) };
+    }
+}
+
 async function RunClient( name: string, client: Client, echo: EchoClient | null, timeoutSeconds: number ): Promise<boolean>
 {
     const start = yojimbo_time();
@@ -203,7 +227,6 @@ async function main(): Promise<number>
         protocolId: ProtocolId,
         pendingTimeoutMs: 1500,
         maxSignalsPerToken: 2,
-        maxBodyBytes: 16384,
     } );
     await adapter.open();
     const serverAddress = adapter.address;
@@ -213,7 +236,7 @@ async function main(): Promise<number>
     server.Start( MaxClients );
     adapter.attachServer( server );
 
-    const httpServer = await adapter.listenSignaling( 0, { host: '127.0.0.1', path: '/signal' } );
+    const httpServer = await ListenSignaling( adapter, 0, { host: '127.0.0.1', path: '/signal', maxBodyBytes: 16384 } );
     const signalPort = ( httpServer.address() as { port: number } ).port;
     const signalUrl = `http://127.0.0.1:${signalPort}/signal`;
     console.log( `server: ${serverAddress.ToString()}, signaling ${signalUrl}` );
@@ -379,6 +402,129 @@ async function main(): Promise<number>
                 error = e instanceof Error ? e.message : String( e );
             }
             check( clientAdapter.state === 'failed' && /403/.test( error ), `connect() with a bad token rejects with 403, state failed (${error})` );
+        }
+
+        // ------------------------------------------------------------------------------------------------
+        console.log( '7. accept() directly: token gate, caps, abort, reaping (WebRTC-only adapter)' );
+        {
+            const signals: { ip: string, status: number, reason: string }[] = [];
+            const direct = new EchoServerAdapter( {
+                address: '127.0.0.1:50000',                 // never bound: udp false, as in a browser
+                privateKey,
+                protocolId: ProtocolId,
+                udp: false,
+                RTCPeerConnection,
+                maxPendingPeers: 3,
+                maxPendingPeersPerIp: 2,
+                maxSignalsPerToken: 1,
+                pendingTimeoutMs: 800,
+                onSignal: event => signals.push( event ),
+            } );
+
+            let unopened = '';
+            try { await direct.accept( { sdp: 'v=0', connectToken: new Uint8Array( 2048 ) } ); } catch ( e ) { unopened = e instanceof SignalError ? `${e.status}` : String( e ); }
+            check( unopened === '503', `accept() before open() → ${unopened}` );
+
+            await direct.open();
+            check( !direct.servesUdp && direct.address.GetPort() === 50000, 'udp: false opens WebRTC only, on the given address' );
+
+            const offers = await Promise.all( Array.from( { length: 6 }, () => MakeOffer() ) );
+            const sdp = offers[0].sdp;
+            const directAddress = direct.address;
+            const token = ( clientId: bigint, extra: Partial<Parameters<typeof GenerateConnectToken>[0]> = {} ) =>
+                GenerateConnectToken( { privateKey, protocolId: ProtocolId, clientId, serverAddresses: [ directAddress ], ...extra } )!;
+
+            const garbage = new Uint8Array( 2048 );
+            crypto.getRandomValues( garbage );
+            const refusals: [ string, Parameters<WebRTCServerAdapter['accept']>[0], number ][] = [
+                [ 'random token', { sdp, connectToken: garbage, ip: 'a' }, 403 ],
+                [ 'token for another server', { sdp, connectToken: token( 20n, { serverAddresses: [ new Address( '127.0.0.1', 50001 ) ] } ), ip: 'a' }, 403 ],
+                [ 'token signed with another key', { sdp, connectToken: token( 21n, { privateKey: RandomKey() } ), ip: 'a' }, 403 ],
+                [ 'token for another protocol', { sdp, connectToken: token( 22n, { protocolId: ProtocolId + 1n } ), ip: 'a' }, 403 ],
+                [ 'expired token', { sdp, connectToken: token( 23n, { expireSeconds: 0 } ), ip: 'a' }, 403 ],
+                [ 'short token', { sdp, connectToken: new Uint8Array( 10 ), ip: 'a' }, 403 ],
+                [ 'token not bytes', { sdp, connectToken: EncodeBase64( token( 24n ) ) as unknown as Uint8Array, ip: 'a' }, 403 ],
+                [ 'sdp not an offer', { sdp: 'hello', connectToken: token( 25n ), ip: 'a' }, 400 ],
+                [ 'already aborted', { sdp, connectToken: token( 26n ), ip: 'a', signal: AbortSignal.abort() }, 499 ],
+            ];
+            for ( const [ name, request, expected ] of refusals )
+            {
+                const result = await AcceptStatus( direct, request );
+                check( result.status === expected, `${name} → SignalError ${result.status} (${result.reason})` );
+            }
+            check( direct.stats.peersCreated === 0, `no peer created by refused requests (created ${direct.stats.peersCreated})` );
+
+            const reused = token( 30n );
+            const first = await AcceptStatus( direct, { sdp: offers[0].sdp, connectToken: reused, ip: 'a' } );
+            check( first.status === 200, `good token → answer (${first.reason})` );
+            const again = await AcceptStatus( direct, { sdp: offers[1].sdp, connectToken: reused, ip: 'b' } );
+            check( again.status === 403, `same token again (maxSignalsPerToken 1) → ${again.status} (${again.reason})` );
+
+            const second = await AcceptStatus( direct, { sdp: offers[1].sdp, connectToken: token( 31n ), ip: 'a' } );
+            const third = await AcceptStatus( direct, { sdp: offers[2].sdp, connectToken: token( 32n ), ip: 'a' } );
+            check( second.status === 200 && third.status === 429, `per-IP pending cap (2): second → ${second.status}, third → ${third.status} (${third.reason})` );
+            const anonymous = await AcceptStatus( direct, { sdp: offers[3].sdp, connectToken: token( 33n ) } );
+            check( anonymous.status === 200, `no ip: per-IP caps do not apply → ${anonymous.status} (${anonymous.reason})` );
+            const full = await AcceptStatus( direct, { sdp: offers[4].sdp, connectToken: token( 34n ) } );
+            check( full.status === 503, `global pending cap (3) → ${full.status} (${full.reason})` );
+            check( direct.stats.peersCreated === 3 && direct.stats.pendingPeers === 3, `three pending peers (${JSON.stringify( direct.stats )})` );
+
+            const reaped = await WaitFor( () => direct.stats.pendingPeers === 0, 4 );
+            check( reaped && direct.stats.peersReaped === 3, `pending peers reaped after pendingTimeoutMs (${JSON.stringify( direct.stats )})` );
+
+            // aborted while the server gathers: the peer is released, not left pending
+            const abort = new AbortController();
+            const pending = AcceptStatus( direct, { sdp: offers[5].sdp, connectToken: token( 35n ), ip: 'c', signal: abort.signal } );
+            abort.abort();
+            const aborted = await pending;
+            check( aborted.status === 499 && direct.stats.pendingPeers === 0 && direct.stats.peersCreated === 4, `aborted during the answer → ${aborted.status}, peer released (${JSON.stringify( direct.stats )})` );
+
+            const accepted = signals.filter( event => event.status === 200 ).length;
+            check( signals.length === 1 + refusals.length + 7 && accepted === 3 && direct.stats.signalsAccepted === 3,
+                   `every decision reported to onSignal (${signals.length} events, ${accepted} accepted)` );
+            check( signals.some( event => event.status === 200 && event.ip === '' ) && signals.some( event => event.ip === 'a' ), 'onSignal carries request.ip (\'\' when omitted)' );
+
+            direct.close();
+            for ( const offer of offers )
+                offer.peer.close();
+
+            let noPort = '';
+            try { await new EchoServerAdapter( { address: '127.0.0.1:0', privateKey, protocolId: ProtocolId, udp: false, RTCPeerConnection } ).open(); } catch ( e ) { noPort = String( e ); }
+            check( /explicit port/.test( noPort ), 'udp: false needs an explicit port' );
+        }
+
+        // ------------------------------------------------------------------------------------------------
+        console.log( '8. no HTTP: client signal function → adapter.accept(), echo alongside a UDP client' );
+        {
+            const signal: WebRTCSignal = ( offer, abort ) => adapter.accept( { ...offer, ip: 'in-process', signal: abort } );
+            const peersBefore = adapter.stats.peersCreated;
+
+            const refusedAdapter = new EchoClientAdapter( { RTCPeerConnection } );
+            let refused = '';
+            try { await refusedAdapter.connect( new Uint8Array( 2048 ), signal ); } catch ( e ) { refused = e instanceof Error ? e.message : String( e ); }
+            check( refusedAdapter.state === 'failed' && /signaling failed: 403/.test( refused ) && adapter.stats.peersCreated === peersBefore,
+                   `a refusal from accept() fails connect() (${refused})` );
+
+            const clientAdapter = new EchoClientAdapter( { RTCPeerConnection } );
+            const webrtcToken = adapter.generateConnectToken( 11n )!;
+            await clientAdapter.connect( webrtcToken, signal );
+            check( clientAdapter.state === 'open', 'connect( token, signal ) opened the data channel without HTTP' );
+
+            const webrtcClient = new Client( GetDefaultAllocator(), new Address( '0.0.0.0' ), config, clientAdapter, yojimbo_time() );
+            webrtcClient.Connect( 11n, webrtcToken );
+            const udpClient = new Client( GetDefaultAllocator(), new Address( '0.0.0.0' ), config, new TestAdapter(), yojimbo_time() );
+            udpClient.Connect( 12n, adapter.generateConnectToken( 12n )! );
+
+            maxConnected = 0;
+            const [ webrtcOk, udpOk ] = await Promise.all( [
+                RunClient( 'webrtc client (direct signal)', webrtcClient, new EchoClient( webrtcClient ), 60 ),
+                RunClient( 'udp client', udpClient, new EchoClient( udpClient ), 60 ),
+            ] );
+            check( webrtcOk && udpOk && maxConnected === 2, `both echo protocols passed, connected at once (max ${maxConnected})` );
+            webrtcClient.Dispose();
+            udpClient.Dispose();
+            clientAdapter.close();
+            check( await WaitFor( () => adapter.stats.openPeers === 0 && adapter.stats.closingPeers === 0, 3 ), 'its peer was released' );
         }
     }
     finally

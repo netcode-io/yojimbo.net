@@ -8,14 +8,14 @@ How to use the C# and TypeScript ports of yojimbo in a game or service. The exam
 |---|---|
 | a .NET game client or dedicated server (.NET 10, Godot C#, Unity and anything else that takes .NET Standard 2.1) | `cs/`, the `yojimbo` NuGet package (`net10.0` and `netstandard2.1`) |
 | a Node game server, tools or bots | `ts/` on Node 24+ (native UDP), the `yojimbo2` npm package |
-| a browser client | `yojimbo2` in the browser, over WebRTC through a Node server running `yojimbo2/webrtc/server` |
+| a browser client | `yojimbo2` in the browser, over WebRTC to a server running `yojimbo2/webrtc/server` (on Node, or in another browser page) |
 
 All three implementations interoperate: C++, C# and TypeScript speak the same wire protocol (`NETCODE 1.02`), so any client can connect to any server. `interop/run.sh` checks all nine pairings. A mixed deployment works as long as both sides agree on the things listed in [What both ends must agree on](#what-both-ends-must-agree-on).
 
 Install:
 
 - **C#:** `dotnet add package yojimbo`, then `using networkprotocol; using static networkprotocol.yojimbo;`. Or reference the source: `<ProjectReference Include="path/to/cs/yojimbo.csproj" />`.
-- **TypeScript:** `npm install yojimbo2`, then `import { ... } from 'yojimbo2'`. Plain `yojimbo` is a different package on npm. Subpaths: `yojimbo2/webrtc/client`, `yojimbo2/webrtc/server`, `yojimbo2/webrtc/token`, `yojimbo2/netcode`, `yojimbo2/reliable`, `yojimbo2/serialize`, `yojimbo2/sodium`. The package is ES modules with type definitions and works with Node 24+ and with browser bundlers. To work from the source instead, import `path/to/ts/source/yojimbo.ts`: Node 24 runs the `.ts` files directly.
+- **TypeScript:** `npm install yojimbo2`, then `import { ... } from 'yojimbo2'`. Plain `yojimbo` is a different package on npm. Subpaths: `yojimbo2/webrtc/client`, `yojimbo2/webrtc/server`, `yojimbo2/webrtc/server-http` (Node), `yojimbo2/webrtc/token`, `yojimbo2/netcode`, `yojimbo2/reliable`, `yojimbo2/serialize`, `yojimbo2/sodium`. The package is ES modules with type definitions and works with Node 24+ and with browser bundlers. To work from the source instead, import `path/to/ts/source/yojimbo.ts`: Node 24 runs the `.ts` files directly.
 
 Both packages share one version, which follows upstream yojimbo with the port's revision folded into the patch. `1.13.500` is the port of upstream 1.13.5, `1.13.501` is the first port-only fix on top of it, and `1.13.600` is the port of upstream 1.13.6.
 
@@ -225,12 +225,12 @@ The client mirrors the C# client: `new Client( ... )`, `client.Connect( clientId
 
 ## Browser clients (WebRTC)
 
-Browsers can't send UDP, so browser clients reach the server over WebRTC data channels configured to behave like UDP (unordered, no retransmits). The channels carry the same encrypted netcode packets. A single Node server accepts WebRTC peers and native UDP clients (Node, C#, C++) at the same time.
+Browsers can't send UDP, so browser clients reach the server over WebRTC data channels configured to behave like UDP (unordered, no retransmits). The channels carry the same encrypted netcode packets. A Node server accepts WebRTC peers and native UDP clients (Node, C#, C++) at the same time; a server can also run in a browser page (WebRTC only, see below).
 
-**Server (Node only, needs `npm install node-datachannel`):**
+**Server (Node, needs `npm install node-datachannel`):**
 
 ```ts
-import { WebRTCServerAdapter, ShutdownWebRTC } from 'yojimbo2/webrtc/server';
+import { WebRTCServerAdapter, ListenSignaling, ShutdownWebRTC } from 'yojimbo2/webrtc/server-http';
 
 class GameServerAdapter extends WebRTCServerAdapter
 {
@@ -245,11 +245,13 @@ await adapter.open();                                       // also binds UDP on
 const server = new Server( GetDefaultAllocator(), privateKey, adapter.address, CreateConfig(), adapter, yojimbo_time() );
 server.Start( MaxClients );
 adapter.attachServer( server );
-await adapter.listenSignaling( 8080, { path: '/signal' } ); // or route POST /signal to adapter.handleSignal( req, res )
+await ListenSignaling( adapter, 8080, { path: '/signal' } ); // or route POST /signal to HandleSignal( adapter, req, res )
 // ... the usual server loop ...
-adapter.close();
+adapter.close();                                            // also closes the signaling server
 await ShutdownWebRTC();                                     // otherwise node-datachannel keeps the process alive
 ```
+
+`yojimbo2/webrtc/server-http` is the Node HTTP layer and re-exports everything in `yojimbo2/webrtc/server`. Before this version the HTTP entry points were adapter methods: `adapter.listenSignaling( port, opts )` is now `ListenSignaling( adapter, port, opts )`, `adapter.handleSignal( req, res )` is `HandleSignal( adapter, req, res, opts )`, and the `cors`, `clientIp`, `maxBodyBytes` and `bodyTimeoutMs` options moved from the adapter to them.
 
 **Browser:**
 
@@ -271,9 +273,52 @@ client.Connect( clientId, connectToken );                   // same token
 // ... the usual client loop, awaiting yojimbo_sleep each frame (or driven by requestAnimationFrame) ...
 ```
 
+**Your own signaling.** Signaling is one offer and one answer, and HTTP is only the default way to carry them. Give `connect` a function instead of a URL, and on the server hand the offer to `adapter.accept()`, the gate every transport goes through:
+
+```ts
+import { type WebRTCSignal } from 'yojimbo2/webrtc/client';
+import { SignalError } from 'yojimbo2/webrtc/server';
+
+// client: send the offer however you like (WebSocket, your lobby's message bus, ...); resolve with the answer
+const signal: WebRTCSignal = async ( offer, abort ) => lobby.request( 'webrtc-offer', offer, { abort } );   // → { sdp }
+await adapter.connect( connectToken, signal );
+
+// server: wherever the offer arrives
+try
+{
+    const answer = await serverAdapter.accept( { sdp: offer.sdp, connectToken: offer.connectToken, ip: playerId } );
+    reply( answer );                                        // { sdp }
+}
+catch ( error )
+{
+    reply( { error: ( error as SignalError ).status } );    // 400 / 403 / 429 / 503: reject the client's signal promise
+}
+```
+
+`connect( url, token )` is the same as `connect( token, HttpSignal( url ) )`. If the signal function rejects, `connect()` fails as it does on an HTTP error (`state` is `'failed'`). `accept()` takes the token as bytes (`Uint8Array`), not base64.
+
+**A server in a browser page.** `WebRTCServerAdapter` runs in a page too, on the browser's own `RTCPeerConnection`, for player-hosted games, peer hosts or a host in an Electron/WebView shell. It is WebRTC only (no UDP in a browser), so give it an address with an explicit port; nothing binds it, it is just the identity connect tokens name. Signal into `accept()` with your own transport (your game's WebSocket relay; a `BroadcastChannel` between tabs of one origin, which is what the repository's browser test does). `yojimbo2/webrtc/server` has no Node code, so it bundles for the browser as is.
+
+```ts
+import { WebRTCServerAdapter } from 'yojimbo2/webrtc/server';
+
+const adapter = new GameServerAdapter( { address: '10.0.0.1:40000', privateKey: sessionKey, protocolId } );   // sessionKey: from your backend
+await adapter.open();                                       // the page's RTCPeerConnection; no UDP
+const server = new Server( GetDefaultAllocator(), sessionKey, adapter.address, CreateConfig(), adapter, yojimbo_time() );
+server.Start( MaxClients );
+adapter.attachServer( server );
+relay.onOffer = async ( offer, from ) => adapter.accept( { sdp: offer.sdp, connectToken: offer.connectToken, ip: from } );
+setInterval( () => { server.SendPackets(); server.ReceivePackets(); server.AdvanceTime( yojimbo_time() ); /* game */ }, 16 );
+```
+
+- **The host page holds the server private key.** Anyone with that page (or its devtools) can mint tokens for it. So the backend must mint a fresh private key for each hosted session, give it only to that host, issue client tokens for that session only (its address and that key), and never reuse a game-wide key in a page.
+- **Per-IP caps need an identity.** `accept()` keys its per-IP caps on `request.ip`, which can be any stable per-caller string (a player or session id from your relay). Without one only the global caps apply, so a relay that can't tell callers apart should authenticate them first.
+- **Keep the host tab visible.** Browsers throttle timers in hidden tabs (Chrome: at most once a second, and less after a few minutes), so a hidden host stops pumping its server and clients time out. A visible tab, or a window the browser does not background (an Electron/WebView host with throttling off), is needed.
+- **No `RTCPeerConnection` in workers.** Browsers expose WebRTC only on the page's main thread, so both the server adapter and the client adapter run there. Keep the frame work light, or move game simulation (not the adapter) into a worker.
+
 What to know:
 
-- **The token gates signaling.** The server decrypts and checks the connect token before it creates a peer connection, so unauthenticated POSTs cost almost nothing. It also caps peers per IP and globally, and limits body size and timeouts. All of these limits are `WebRTCServerAdapter` options.
+- **The token gates signaling.** The server decrypts and checks the connect token before it creates a peer connection, so unauthenticated offers cost almost nothing. It also caps peers per IP and globally and reaps peers that stall; all of this is `accept()`, whatever the transport. The HTTP layer adds body size, content type and method checks. The limits are `WebRTCServerAdapter` options (HTTP ones are `ListenSignaling`/`HandleSignal` options).
 - **Deployment:**
   - Serve `/signal` over HTTPS, and set `cors` if the page is on another origin.
   - Give clients STUN, and TURN for networks that block UDP.

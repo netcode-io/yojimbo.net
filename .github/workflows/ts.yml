@@ -1,4 +1,5 @@
-# TypeScript port: typecheck, unit tests, custom packet I/O, browser build, and the WebRTC transport test.
+# TypeScript port: typecheck, unit tests, custom packet I/O, browser build and bundle check, the WebRTC transport
+# test, and (job browser) a yojimbo server hosted in a headless Chromium page.
 #
 # The tests bind fixed UDP ports (40000, 30000, ...), so each job runs its suites one after another.
 # Interop against C++ and C# runs in cs.yml.
@@ -44,7 +45,29 @@ jobs:
         run: npm test
       - name: custom packet io test
         run: node custom_packet_io_test.ts
-      - name: build (browser bundle)
+      - name: build
         run: npm run build
+      - name: browser bundle check (no node:*, no node-datachannel)
+        run: npm run test:bundle
       - name: webrtc test
         run: npm run test:webrtc
+
+  browser:
+    name: browser-hosted server (headless Chromium)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: ts
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: ts/package-lock.json
+      - run: npm ci
+      - name: install Chromium (playwright-core, pinned in package.json)
+        run: npx playwright-core install --with-deps --only-shell chromium
+      - name: browser test
+        run: npm run test:browser
