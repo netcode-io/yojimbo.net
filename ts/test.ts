@@ -2445,10 +2445,16 @@ function GenerateGoldenScenario(): Array<[ string, string ]>
 // ---------------------------------------------------------------------------------------------
 // Client / server tests (real UDP sockets on 127.0.0.1, so they are async: every pump yields to the event loop)
 
-// real time each test pump gives the sockets. on windows node's udp receive takes in one datagram per event loop turn,
-// so a server fed by 32 clients needs more real time per pump than on macOS/linux, or a receive backlog builds up
-// (seen in CI: 12 s of simulated rtt and dropped packets in test_client_server_start_stop_restart)
-const PumpRealSleepSeconds = process.platform === 'win32' ? 0.005 : 0.001;
+// event loop turns each test pump yields so the sockets can deliver what was just sent. node reads at most 32
+// datagrams per socket per turn on macOS/linux and one on windows, so yielding for a fixed time can leave a server fed
+// by 32 clients with a growing receive backlog on a slow machine (seen in CI as 10-12 s of simulated rtt in
+// test_client_server_start_stop_restart). a fixed number of turns drains far more than arrives on every platform
+const PumpEventLoopTurns = 64;
+
+function YieldEventLoopTurn(): Promise<void>
+{
+    return new Promise<void>( resolve => setImmediate( resolve ) );
+}
 
 class TimeState
 {
@@ -2477,9 +2483,10 @@ async function PumpClientServerUpdate( state: TimeState, client: Client[], numCl
     for ( let i = 0; i < numServers; ++i )
         server[i].AdvanceTime( state.time );
 
-    // the sockets are real but the clock is simulated: give the OS a moment to deliver what was just sent, or the
+    // the sockets are real but the clock is simulated: let the event loop deliver what was just sent, or the
     // simulated clock outruns delivery
-    await yojimbo_sleep( PumpRealSleepSeconds );
+    for ( let turn = 0; turn < PumpEventLoopTurns; ++turn )
+        await YieldEventLoopTurn();
 }
 
 function SendClientToServerMessages( client: Client, numMessagesToSend: number, channelIndex: number = ReliableChannel ): void
