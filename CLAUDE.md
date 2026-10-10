@@ -9,6 +9,7 @@ C# and TypeScript ports of the yojimbo C++ network library (with netcode, reliab
 - `ts/`: TypeScript port for Node 24+ and browsers (npm package `yojimbo2`; plain `yojimbo` is taken on npm). `ts/webrtc/` adds browser clients over WebRTC; it is an extension, not an upstream mirror.
 - `interop/`: runs C++, C# and TypeScript against each other in all nine server/client pairings.
 - `tools/version.mjs`: the package version tool (see Versions and releases). `VERSION` at the root is the source of truth.
+- `tools/upstream_diff.mjs`: the upstream change report (see Syncing with upstream).
 
 ## Mirroring rules (keep them)
 
@@ -30,7 +31,7 @@ interop/run.sh                                                # needs cc/c++, .N
 ```
 
 - **Tests bind fixed UDP ports** (40000, 30000, ...), so never run two suites at the same time. A "bind failed" or "server_create failed" error often just means another run held the port; rerun before debugging.
-- **CI:** `.github/workflows/cs.yml` runs C# on Linux, macOS and Windows plus interop; `ts.yml` runs TypeScript on all three. Both must stay green.
+- **CI:** `.github/workflows/cs.yml` runs C# on Linux, macOS and Windows plus interop; `ts.yml` runs TypeScript on all three. Both must stay green. `upstream.yml` runs weekly and keeps one `upstream-sync` issue open while upstream is past the pin.
 
 ## Port conventions
 
@@ -74,8 +75,8 @@ interop/run.sh                                                # needs cc/c++, .N
 
 ## Syncing with upstream
 
-1. Fetch upstream in `cpp/` and diff the pinned commit against the new one (`git -C cpp log/diff <pin>..<new>`).
-2. Port each changed upstream file into its mirrored C# and TypeScript files. Port new upstream tests too.
+1. Run `node tools/upstream_diff.mjs` (the weekly `upstream.yml` workflow posts the same report as an `upstream-sync` issue). It lists the commits past the pin and, per port, the files to update with the upstream diff stat behind each.
+2. Port each file on the checklist from its upstream diff (`git -C cpp diff <pin> <new> -- <file>`). Port new upstream tests too. When the report lists a file under "No port counterpart", add a rule to `MAP` in the script.
 3. Bump the submodule pin. Set the package version with `node tools/version.mjs set <new upstream version>`, update the in-code version constants and the README.
 4. Run every command above, including `interop/run.sh`.
 
