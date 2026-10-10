@@ -3128,6 +3128,131 @@ public static class test
             check(receiver.ErrorLevel == ConnectionErrorLevel.CONNECTION_ERROR_NONE);
         }
 
+        // port addition: ChannelConfig.allocateBlocksOnDemand. The reliable-ordered channel reserves no maxBlockSize receive
+        // buffer when it is created; it allocates one sized to each incoming block and frees it once the block is delivered.
+
+        static void SendTestBlock(MessageFactory messageFactory, Connection sender, int sequence, int blockSize)
+        {
+            var message = (TestBlockMessage)messageFactory.CreateMessage((int)TestMessageType.TEST_BLOCK_MESSAGE);
+            check(message != null);
+            message.sequence = (ushort)sequence;
+            var blockData = YOJIMBO_ALLOCATE(messageFactory.Allocator, blockSize);
+            for (var j = 0; j < blockSize; ++j)
+                blockData[j] = (byte)(sequence + j);
+            message.AttachBlock(messageFactory.Allocator, blockData, blockSize);
+            sender.SendMessage(0, message);
+        }
+
+        static void CheckReceivedTestBlock(Message message, int sequence, int blockSize)
+        {
+            check(message.Id == sequence);
+            check(message.Type == (int)TestMessageType.TEST_BLOCK_MESSAGE);
+            var blockMessage = (TestBlockMessage)message;
+            check(blockMessage.sequence == (ushort)sequence);
+            check(blockMessage.BlockSize == blockSize);
+            for (var j = 0; j < blockSize; ++j)
+                check(blockMessage.BlockData[j] == (byte)(sequence + j));
+        }
+
+        static void test_connection_reliable_ordered_blocks_on_demand()
+        {
+            const int MaxBlockSize = 4 * 1024 * 1024;
+            const int HeapBytes = 64 * 1024 * 1024;
+
+            using var messageFactory = new TestMessageFactory(GetDefaultAllocator());
+
+            var onDemand = new ConnectionConfig();
+            onDemand.channel[0].maxBlockSize = MaxBlockSize;
+            onDemand.channel[0].allocateBlocksOnDemand = true;
+            var preallocated = onDemand.Clone();
+            preallocated.channel[0].allocateBlocksOnDemand = false;
+
+            // a connection no longer reserves maxBlockSize up front
+
+            long connectionBytes;
+            {
+                using var preallocatedAllocator = new TLSF_Allocator(null, HeapBytes);
+                using var onDemandAllocator = new TLSF_Allocator(null, HeapBytes);
+                using (var withBuffer = new Connection(preallocatedAllocator, messageFactory, preallocated, 0.0))
+                using (var withoutBuffer = new Connection(onDemandAllocator, messageFactory, onDemand, 0.0))
+                {
+                    check(preallocatedAllocator.GetUsedBytes() - onDemandAllocator.GetUsedBytes() >= MaxBlockSize);
+                    connectionBytes = onDemandAllocator.GetUsedBytes();
+                }
+            }
+
+            // blocks arrive intact, and each receive buffer is freed once its block is delivered
+
+            {
+                using var senderAllocator = new TLSF_Allocator(null, HeapBytes);
+                using var receiverAllocator = new TLSF_Allocator(null, HeapBytes);
+                var time = 100.0;
+                using var sender = new Connection(senderAllocator, messageFactory, onDemand, time);
+                using var receiver = new Connection(receiverAllocator, messageFactory, onDemand, time);
+                var baseline = receiverAllocator.GetUsedBytes();
+
+                const int NumBlocks = 16;
+                static int blockSizeFor(int i) => 1 + ((i * 7919) % 20000);
+                for (var i = 0; i < NumBlocks; ++i)
+                    SendTestBlock(messageFactory, sender, i, blockSizeFor(i));
+
+                var numReceived = 0;
+                ushort senderSequence = 0, receiverSequence = 0;
+                for (var i = 0; i < 10000 && numReceived < NumBlocks; ++i)
+                {
+                    PumpConnectionUpdate(onDemand, ref time, sender, receiver, ref senderSequence, ref receiverSequence, 0.1f, 0);
+                    Message message;
+                    while ((message = receiver.ReceiveMessage(0)) != null)
+                    {
+                        CheckReceivedTestBlock(message, numReceived, blockSizeFor(numReceived));
+                        messageFactory.ReleaseMessage(ref message);
+                        ++numReceived;
+                    }
+                }
+                check(numReceived == NumBlocks);
+                check(receiver.ErrorLevel == ConnectionErrorLevel.CONNECTION_ERROR_NONE);
+                check(receiverAllocator.GetUsedBytes() == baseline);
+            }
+
+            // with a budget far below maxBlockSize, small blocks still arrive; a block that doesn't fit is a channel
+            // out-of-memory error (the connection fails as for any allocation failure) rather than a crash
+
+            {
+                const int Headroom = 64 * 1024;
+                long controlOverhead;
+                using (var probe = new TLSF_Allocator(null, HeapBytes))
+                    controlOverhead = HeapBytes - probe.GetCapacityBytes();
+
+                using var senderAllocator = new TLSF_Allocator(null, HeapBytes);
+                using var receiverAllocator = new TLSF_Allocator(null, (int)(controlOverhead + connectionBytes + Headroom));
+                var time = 100.0;
+                using var sender = new Connection(senderAllocator, messageFactory, onDemand, time);
+                using var receiver = new Connection(receiverAllocator, messageFactory, onDemand, time);
+
+                const int SmallBlock = 2000;
+                const int LargeBlock = 256 * 1024;
+                SendTestBlock(messageFactory, sender, 0, SmallBlock);
+                SendTestBlock(messageFactory, sender, 1, LargeBlock);
+
+                var receivedSmall = false;
+                ushort senderSequence = 0, receiverSequence = 0;
+                for (var i = 0; i < 1000 && receiver.ErrorLevel == ConnectionErrorLevel.CONNECTION_ERROR_NONE; ++i)
+                {
+                    PumpConnectionUpdate(onDemand, ref time, sender, receiver, ref senderSequence, ref receiverSequence, 0.1f, 0);
+                    Message message;
+                    while ((message = receiver.ReceiveMessage(0)) != null)
+                    {
+                        CheckReceivedTestBlock(message, 0, SmallBlock);
+                        messageFactory.ReleaseMessage(ref message);
+                        receivedSmall = true;
+                    }
+                }
+                check(receivedSmall);
+                check(receiver.ErrorLevel == ConnectionErrorLevel.CONNECTION_ERROR_CHANNEL);
+                check(receiver.GetChannelErrorLevel(0) == ChannelErrorLevel.CHANNEL_ERROR_OUT_OF_MEMORY);
+            }
+        }
+
         static void test_connection_reliable_ordered_blocks_max_size()
         {
             // Regression (760ebc2): when maxBlockSize is not a multiple of blockFragmentSize, a full-size block
@@ -4718,6 +4843,7 @@ public static class test
                 RUN_TEST("test_connection_reliable_ordered_messages", test_connection_reliable_ordered_messages);
                 RUN_TEST("test_connection_reliable_ordered_blocks", test_connection_reliable_ordered_blocks);
                 RUN_TEST("test_connection_reliable_ordered_blocks_max_size", test_connection_reliable_ordered_blocks_max_size);
+                RUN_TEST("test_connection_reliable_ordered_blocks_on_demand", test_connection_reliable_ordered_blocks_on_demand);
                 RUN_TEST("test_connection_reliable_ordered_messages_and_blocks", test_connection_reliable_ordered_messages_and_blocks);
                 RUN_TEST("test_connection_reliable_ordered_messages_and_blocks_multiple_channels", test_connection_reliable_ordered_messages_and_blocks_multiple_channels);
                 RUN_TEST("test_connection_unreliable_unordered_messages", test_connection_unreliable_unordered_messages);

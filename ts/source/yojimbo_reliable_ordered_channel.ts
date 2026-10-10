@@ -151,12 +151,15 @@ class ReceiveBlockData
 
     private m_allocator: Allocator;                 ///< Allocator used to free the data on shutdown.
 
-    constructor( allocator: Allocator, maxBlockSize: number, maxFragmentsPerBlock: number )
+    // port addition: with ChannelConfig.allocateBlocksOnDemand, blockData is allocated per block in
+    // ReliableOrderedChannel.ProcessPacketFragment instead of here, and freed once the block is delivered
+
+    constructor( allocator: Allocator, maxBlockSize: number, maxFragmentsPerBlock: number, allocateOnDemand: boolean = false )
     {
         this.m_allocator = allocator;
         this.receivedFragment = YOJIMBO_NEW( allocator, () => new BitArray( allocator, maxFragmentsPerBlock ) );
-        this.blockData = YOJIMBO_ALLOCATE( allocator, maxBlockSize );
-        yojimbo_assert( this.receivedFragment && this.blockData, "receivedFragment && blockData", "ReceiveBlockData::ReceiveBlockData" );
+        this.blockData = allocateOnDemand ? null : YOJIMBO_ALLOCATE( allocator, maxBlockSize );
+        yojimbo_assert( this.receivedFragment && ( allocateOnDemand || this.blockData ), "receivedFragment && blockData", "ReceiveBlockData::ReceiveBlockData" );
         this.blockMessage = null;
         this.Reset();
     }
@@ -260,7 +263,7 @@ export class ReliableOrderedChannel extends Channel
         if ( !config.disableBlocks )
         {
             this.m_sendBlock = YOJIMBO_NEW( a, () => new SendBlockData( a, c.GetMaxFragmentsPerBlock() ) );
-            this.m_receiveBlock = YOJIMBO_NEW( a, () => new ReceiveBlockData( a, c.maxBlockSize, c.GetMaxFragmentsPerBlock() ) );
+            this.m_receiveBlock = YOJIMBO_NEW( a, () => new ReceiveBlockData( a, c.maxBlockSize, c.GetMaxFragmentsPerBlock(), c.allocateBlocksOnDemand ) );
         }
         else
         {
@@ -335,6 +338,8 @@ export class ReliableOrderedChannel extends Channel
         if ( this.m_receiveBlock )
         {
             this.m_receiveBlock.Reset();
+            if ( this.m_config.allocateBlocksOnDemand )
+                this.m_receiveBlock.blockData = YOJIMBO_FREE( this.m_allocator, this.m_receiveBlock.blockData );
             if ( this.m_receiveBlock.blockMessage )
             {
                 this.m_messageFactory.ReleaseMessage( this.m_receiveBlock.blockMessage );
@@ -1018,6 +1023,20 @@ export class ReliableOrderedChannel extends Channel
                 yojimbo_assert( numFragments >= 0, "numFragments >= 0", "ReliableOrderedChannel::ProcessPacketFragment" );
                 yojimbo_assert( numFragments <= this.m_config.GetMaxFragmentsPerBlock(), "numFragments <= m_config.GetMaxFragmentsPerBlock()", "ReliableOrderedChannel::ProcessPacketFragment" );
 
+                if ( this.m_config.allocateBlocksOnDemand )
+                {
+                    // port addition: allocate the receive buffer for this block now, sized to its fragments
+                    const bufferBytes = Math.min( numFragments * this.m_config.blockFragmentSize, this.m_config.maxBlockSize );
+                    receiveBlock.blockData = YOJIMBO_FREE( this.m_allocator, receiveBlock.blockData );
+                    receiveBlock.blockData = YOJIMBO_ALLOCATE( this.m_allocator, bufferBytes );
+                    if ( !receiveBlock.blockData )
+                    {
+                        // Not enough memory to receive the block
+                        this.SetErrorLevel( CHANNEL_ERROR_OUT_OF_MEMORY );
+                        return;
+                    }
+                }
+
                 receiveBlock.active = true;
                 receiveBlock.numFragments = numFragments;
                 receiveBlock.numReceivedFragments = 0;
@@ -1048,7 +1067,8 @@ export class ReliableOrderedChannel extends Channel
             // starts at an offset where a full blockFragmentSize write would run past the buffer.
             // fragmentBytes is attacker-controlled in [1,blockFragmentSize], so a peer can send an
             // over-long final fragment. Reject anything that wouldn't fit.
-            if ( fragmentId * this.m_config.blockFragmentSize + fragmentBytes > this.m_config.maxBlockSize )
+            if ( fragmentId * this.m_config.blockFragmentSize + fragmentBytes > this.m_config.maxBlockSize ||
+                 fragmentId * this.m_config.blockFragmentSize + fragmentBytes > receiveBlock.blockData!.length )
             {
                 // The fragment would write past the end of the block buffer.
                 this.SetErrorLevel( CHANNEL_ERROR_DESYNC );
@@ -1126,6 +1146,9 @@ export class ReliableOrderedChannel extends Channel
                     entry.message = completedBlockMessage;
                     receiveBlock.active = false;
                     receiveBlock.blockMessage = null;
+
+                    if ( this.m_config.allocateBlocksOnDemand )
+                        receiveBlock.blockData = YOJIMBO_FREE( this.m_allocator, receiveBlock.blockData );
                 }
             }
         }

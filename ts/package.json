@@ -1,6 +1,6 @@
 {
   "name": "yojimbo2",
-  "version": "1.13.501",
+  "version": "1.13.502",
   "description": "TypeScript port of yojimbo (with netcode, reliable and serialize) for Node and the browser",
   "keywords": [
     "yojimbo",

@@ -95,6 +95,7 @@ export class ChannelConfig
     blockFragmentSize = 1024;                                   ///< Blocks are split up into fragments of this size (bytes). Reliable-ordered channel only.
     messageResendTime = Math.fround( 0.1 );                     ///< Minimum delay between message resends (seconds, float32). Avoids sending the same message too frequently. Reliable-ordered channel only.
     blockFragmentResendTime = Math.fround( 0.25 );              ///< Minimum delay between block fragment resends (seconds, float32). Avoids sending the same fragment too frequently. Reliable-ordered channel only.
+    allocateBlocksOnDemand = false;                             ///< Port addition (not in upstream): allocate the block receive buffer when a block starts arriving, sized to that block, and free it once delivered, instead of reserving maxBlockSize per connection when the channel is created. Lets a server raise maxBlockSize without reserving it for every client. Local only, not on the wire. Reliable-ordered channel only.
 
     /**
         The number of fragments a block of maxBlockSize is split into: ceil( maxBlockSize / blockFragmentSize ).

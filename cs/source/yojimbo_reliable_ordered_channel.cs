@@ -76,7 +76,7 @@ namespace networkprotocol
             if (!config.disableBlocks)
             {
                 m_sendBlock = yojimbo.YOJIMBO_NEW(m_allocator, () => new SendBlockData(m_allocator, m_config.MaxFragmentsPerBlock));
-                m_receiveBlock = yojimbo.YOJIMBO_NEW(m_allocator, () => new ReceiveBlockData(m_allocator, m_config.maxBlockSize, m_config.MaxFragmentsPerBlock));
+                m_receiveBlock = yojimbo.YOJIMBO_NEW(m_allocator, () => new ReceiveBlockData(m_allocator, m_config.maxBlockSize, m_config.MaxFragmentsPerBlock, m_config.allocateBlocksOnDemand));
             }
             else
             {
@@ -137,6 +137,8 @@ namespace networkprotocol
             if (m_receiveBlock != null)
             {
                 m_receiveBlock.Reset();
+                if (m_config.allocateBlocksOnDemand)
+                    yojimbo.YOJIMBO_FREE(m_allocator, ref m_receiveBlock.blockData);
                 if (m_receiveBlock.blockMessage != null)
                 {
                     m_messageFactory.ReleaseMessage(ref m_receiveBlock.blockMessage);
@@ -792,6 +794,20 @@ namespace networkprotocol
                     yojimbo.assert(numFragments >= 0);
                     yojimbo.assert(numFragments <= m_config.MaxFragmentsPerBlock);
 
+                    if (m_config.allocateBlocksOnDemand)
+                    {
+                        // port addition: allocate the receive buffer for this block now, sized to its fragments
+                        var bufferBytes = (int)Math.Min((long)numFragments * m_config.blockFragmentSize, m_config.maxBlockSize);
+                        yojimbo.YOJIMBO_FREE(m_allocator, ref m_receiveBlock.blockData);
+                        m_receiveBlock.blockData = yojimbo.YOJIMBO_ALLOCATE(m_allocator, bufferBytes);
+                        if (m_receiveBlock.blockData == null)
+                        {
+                            // Not enough memory to receive the block
+                            SetErrorLevel(ChannelErrorLevel.CHANNEL_ERROR_OUT_OF_MEMORY);
+                            return;
+                        }
+                    }
+
                     m_receiveBlock.active = true;
                     m_receiveBlock.numFragments = numFragments;
                     m_receiveBlock.numReceivedFragments = 0;
@@ -821,7 +837,8 @@ namespace networkprotocol
                 // multiple of blockFragmentSize the fragment count rounds up, so the final fragment
                 // starts at an offset where a full blockFragmentSize write would run past the buffer.
                 // fragmentBytes is attacker-controlled in [1,blockFragmentSize], so reject anything that wouldn't fit.
-                if ((long)fragmentId * m_config.blockFragmentSize + fragmentBytes > m_config.maxBlockSize)
+                if ((long)fragmentId * m_config.blockFragmentSize + fragmentBytes > m_config.maxBlockSize ||
+                    (long)fragmentId * m_config.blockFragmentSize + fragmentBytes > m_receiveBlock.blockData.Length)
                 {
                     // The fragment would write past the end of the block buffer.
                     SetErrorLevel(ChannelErrorLevel.CHANNEL_ERROR_DESYNC);
@@ -895,6 +912,9 @@ namespace networkprotocol
                         entry.message = blockMessage;
                         m_receiveBlock.active = false;
                         m_receiveBlock.blockMessage = null;
+
+                        if (m_config.allocateBlocksOnDemand)
+                            yojimbo.YOJIMBO_FREE(m_allocator, ref m_receiveBlock.blockData);
                     }
                 }
             }
@@ -984,12 +1004,15 @@ namespace networkprotocol
          */
         protected class ReceiveBlockData : IDisposable
         {
-            public ReceiveBlockData(Allocator allocator, int maxBlockSize, int maxFragmentsPerBlock)
+            // port addition: with ChannelConfig.allocateBlocksOnDemand, blockData is allocated per block in
+            // ProcessPacketFragment instead of here, and freed once the block is delivered
+
+            public ReceiveBlockData(Allocator allocator, int maxBlockSize, int maxFragmentsPerBlock, bool allocateOnDemand = false)
             {
                 m_allocator = allocator;
                 receivedFragment = yojimbo.YOJIMBO_NEW(allocator, () => new BitArray(allocator, maxFragmentsPerBlock));
-                blockData = yojimbo.YOJIMBO_ALLOCATE(allocator, maxBlockSize);
-                yojimbo.assert(receivedFragment != null && blockData != null);
+                blockData = allocateOnDemand ? null : yojimbo.YOJIMBO_ALLOCATE(allocator, maxBlockSize);
+                yojimbo.assert(receivedFragment != null && (allocateOnDemand || blockData != null));
                 blockMessage = null;
                 Reset();
             }

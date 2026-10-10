@@ -345,6 +345,12 @@ namespace networkprotocol
             base.Dispose();
         }
 
+        /// Bytes charged to live blocks, including per-block overhead. Port addition (as the TypeScript port), for tests and diagnostics.
+        public long GetUsedBytes() => m_used;
+
+        /// Bytes available to blocks. Port addition (as the TypeScript port), for tests and diagnostics.
+        public long GetCapacityBytes() => m_capacity;
+
         public override T Allocate<T>(int size, Func<T> create, string file, int line)
         {
             yojimbo.assert(size >= 0);

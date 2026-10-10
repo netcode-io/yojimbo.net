@@ -41,6 +41,7 @@ interop/run.sh                                                # needs cc/c++, .N
   - When you use a newer .NET API, either add a polyfill there or guard the code.
   - `Int128`/`UInt128` code is guarded with `#if NET7_0_OR_GREATER` (in tests, `#if !YOJIMBO_NETSTANDARD`).
   - Run the tests against that build with `dotnet build cs/test.csproj -p:YojimboTargetFramework=netstandard2.1 -p:BuildRoot=<other dir>/`. Use a separate output folder so the default build isn't overwritten. CI runs both.
+- **Port additions** (not in upstream; keep them through upstream syncs, in both ports): `ChannelConfig.allocateBlocksOnDemand` (on-demand block receive buffers in the reliable-ordered channel, tested by `test_connection_reliable_ordered_blocks_on_demand`) and `TLSF_Allocator.GetUsedBytes()`/`GetCapacityBytes()`. Mark any new one with a "port addition" comment where it lives.
 - **C#:** C-style names as upstream (`netcode.client_create`, `reliable.endpoint_send_packet`, the `yojimbo` static class for free functions). The stream `serialize_*` extension methods return bool; every call site must propagate a failure. The allocator semantics are real (error level, leak tracking, failure injection in tests).
 - **TypeScript:** see [ts/README.md](ts/README.md).
   - The code is ESM, with `erasableSyntaxOnly` (no enums or namespaces).

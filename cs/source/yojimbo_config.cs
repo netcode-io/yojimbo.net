@@ -91,6 +91,7 @@ namespace networkprotocol
         public int blockFragmentSize = 1024;                                    ///< Blocks are split up into fragments of this size (bytes). Reliable-ordered channel only.
         public float messageResendTime = 0.1f;                                  ///< Minimum delay between message resends (seconds). Avoids sending the same message too frequently. Reliable-ordered channel only.
         public float blockFragmentResendTime = 0.25f;                           ///< Minimum delay between block fragment resends (seconds). Avoids sending the same fragment too frequently. Reliable-ordered channel only.
+        public bool allocateBlocksOnDemand = false;                             ///< Port addition (not in upstream): allocate the block receive buffer when a block starts arriving, sized to that block, and free it once delivered, instead of reserving maxBlockSize per connection when the channel is created. Lets a server raise maxBlockSize without reserving it for every client. Local only, not on the wire. Reliable-ordered channel only.
 
         /**
             The maximum number of fragments a block can be split into: ceil(maxBlockSize / blockFragmentSize).

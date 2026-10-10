@@ -377,6 +377,7 @@ For local development, `client.InsecureConnect(privateKey, clientId, serverAddre
   - The 128-bit serialize primitives (`serialize_int128`, `serialize_uint128`, 128-bit fixed point) are not available there, because `Int128` needs .NET 7.
   - IPv6 packet tagging needs .NET 5+, so on Unity's Mono, `EnablePacketTagging` makes IPv6 socket creation fail; leave tagging off there.
   - The full test suite passes against the `netstandard2.1` build on .NET. Unity itself is not covered by CI.
+- **Block memory:** by default, as upstream, every reliable-ordered channel reserves a `maxBlockSize` receive buffer per connection when it's created. A 64-client server with the default 256 KB reserves 16 MB per reliable channel; at 4 MB it would be 256 MB. Set `config.channel[i].allocateBlocksOnDemand = true` (a port addition, not in upstream C++) to allocate the buffer only while a block is arriving, sized to that block, and free it once delivered. If that allocation fails, the client is disconnected with `CHANNEL_ERROR_OUT_OF_MEMORY`. It's local to each end, so it doesn't need to match the other side.
 - **Message sizes:** messages larger than the channel allows are rejected (`CHANNEL_ERROR_MESSAGE_TOO_LARGE`). Send large payloads as blocks, or raise `maxPacketSize`/fragment settings on both ends.
 - **Disconnect reasons:** `client.GetDisconnectReason()` and `server.GetClientDisconnectReason(clientIndex)`, with the `Get*DisconnectReasonString` helpers, tell you why a connection ended. `GetNetworkInfo` gives RTT, jitter, packet loss and bandwidth.
 
