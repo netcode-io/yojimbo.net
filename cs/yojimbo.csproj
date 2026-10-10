@@ -7,7 +7,7 @@
     <TargetFramework></TargetFramework>
     <AppendTargetFrameworkToOutputPath>true</AppendTargetFrameworkToOutputPath>
     <!-- tracks upstream yojimbo: cpp/ is the submodule this version was ported from -->
-    <Version>1.13.500</Version>
+    <Version>1.13.501</Version>
     <!-- yojimbo_config.h: logging is on by default; YOJIMBO tells reliable it is built into yojimbo -->
     <DefineConstants>$(DefineConstants);YOJIMBO;YOJIMBO_ENABLE_LOGGING</DefineConstants>
   </PropertyGroup>
