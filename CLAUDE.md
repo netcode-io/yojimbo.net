@@ -50,11 +50,13 @@ interop/run.sh                                                # needs cc/c++, .N
 ## Versions and releases
 
 - **Packages:** NuGet `yojimbo` (C#), npm `yojimbo2` (TypeScript; plain `yojimbo` on npm is someone else's package).
-- **Versions mirror upstream yojimbo,** plus a port revision for fixes made here between upstream releases. `VERSION` holds it in NuGet form:
-  - `1.13.5` is the port of upstream 1.13.5.
-  - `1.13.5.1` is the first port-only fix on top of it.
-- **npm has no fourth part,** so its patch is PATCH × 100 + REVISION: `1.13.500`, `1.13.501`, and upstream 1.13.6 becomes `1.13.600`. This keeps ordering correct, so never publish npm `1.13.5` or `1.13.6`.
-- **Use the tool, never hand-edit:** `node tools/version.mjs set <version>` writes `VERSION`, `cs/yojimbo.csproj` and `ts/package.json` plus its lockfile. `node tools/version.mjs check [tag]` verifies them against each other and against `cpp/include/yojimbo_config.h`.
+- **Both packages share one version** that mirrors upstream yojimbo and folds a port revision (fixes made here between upstream releases) into the patch: MAJOR.MINOR.(PATCH × 100 + REVISION).
+  - `1.13.500` is the port of upstream 1.13.5.
+  - `1.13.501` is the first port-only fix on top of it.
+  - `1.13.600` is the port of upstream 1.13.6.
+
+  `VERSION` holds it, and release tags are `v<VERSION>`. Never publish a plain upstream number such as `1.13.5`: it would sort below the folded ones.
+- **Use the tool, never hand-edit:** `node tools/version.mjs set <version>` (takes `1.13.501` or `1.13.5.1`) writes `VERSION`, `cs/yojimbo.csproj` and `ts/package.json` plus its lockfile. `node tools/version.mjs check [tag]` verifies them against each other and against `cpp/include/yojimbo_config.h`.
 - **In-code version constants** mirror upstream's macros (the upstream version, with no port revision). Don't change them for port fixes.
 - **To release:**
   1. Bump with the tool.

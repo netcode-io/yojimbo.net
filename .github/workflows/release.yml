@@ -1,6 +1,7 @@
 # Release: publish the C# port to NuGet (yojimbo) and the TypeScript port to npm (yojimbo2).
 #
-# Push a tag v<VERSION>, where VERSION is the root VERSION file (e.g. v1.13.5, or v1.13.5.1 for a port-only fix).
+# Push a tag v<VERSION>, where VERSION is the root VERSION file (e.g. v1.13.500 for upstream 1.13.5, v1.13.501 for a
+# port-only fix on top of it; both packages publish that same version).
 # tools/version.mjs checks the tag against VERSION, cs/yojimbo.csproj, ts/package.json and the upstream version
 # in cpp/. Run it by hand (Actions > release > Run workflow) for a dry run that builds, tests and packs but
 # publishes nothing.

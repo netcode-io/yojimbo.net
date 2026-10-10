@@ -3,17 +3,19 @@
     Package versions for the ports.
 
     The ports mirror the upstream yojimbo version they implement (cpp/include/yojimbo_config.h), plus a port
-    revision for fixes made here between upstream releases. VERSION at the repo root holds it in NuGet form:
+    revision for fixes made here between upstream releases. Both packages (NuGet yojimbo, npm yojimbo2) use one
+    version that folds the revision into the patch: MAJOR.MINOR.(PATCH * 100 + REVISION).
 
-        1.13.5      the port of upstream 1.13.5
-        1.13.5.1    the first port-only fix on top of it
+        1.13.500    the port of upstream 1.13.5
+        1.13.501    the first port-only fix on top of it
+        1.13.600    the port of upstream 1.13.6
 
-    npm has no fourth part, so the npm version folds the revision into the patch: PATCH * 100 + REVISION
-    (1.13.5 -> 1.13.500, 1.13.5.1 -> 1.13.501, upstream 1.13.6 -> 1.13.600). This keeps npm ordering correct.
+    VERSION at the repo root holds it; release tags are v<VERSION>.
 
-        node tools/version.mjs                 print the versions
-        node tools/version.mjs check [tag]     verify VERSION, cs/yojimbo.csproj, ts/package.json (and a vX.Y.Z[.R] tag)
-        node tools/version.mjs set 1.13.5.1    write VERSION, cs/yojimbo.csproj, ts/package.json and its lockfile
+        node tools/version.mjs                     print the version and the upstream version it ports
+        node tools/version.mjs check [tag]         verify VERSION, cs/yojimbo.csproj, ts/package.json (and a v<VERSION> tag)
+        node tools/version.mjs set 1.13.501        write VERSION, cs/yojimbo.csproj, ts/package.json and its lockfile
+        node tools/version.mjs set 1.13.5.1        the same, given as upstream version plus revision
 */
 
 import fs from 'node:fs';
@@ -23,21 +25,25 @@ import url from 'node:url';
 const root = path.resolve( path.dirname( url.fileURLToPath( import.meta.url ) ), '..' );
 const file = ( relative ) => path.join( root, relative );
 
+// accepts the package form (1.13.500, 1.13.501) or upstream plus revision (1.13.5, 1.13.5.1)
 function parse( version )
 {
     const match = /^(\d+)\.(\d+)\.(\d+)(?:\.(\d+))?$/.exec( version.trim() );
     if ( !match )
         throw new Error( `bad version "${version}": expected MAJOR.MINOR.PATCH or MAJOR.MINOR.PATCH.REVISION` );
-    const [ , major, minor, patch, revision = '0' ] = match;
-    const v = { major: +major, minor: +minor, patch: +patch, revision: +revision };
-    if ( v.revision > 99 )
-        throw new Error( `port revision ${v.revision} is over 99, which the npm encoding can't hold` );
-    return v;
+    const [ , major, minor, patch, revision ] = match;
+    if ( revision !== undefined || +patch < 100 )
+    {
+        const v = { major: +major, minor: +minor, patch: +patch, revision: revision === undefined ? 0 : +revision };
+        if ( v.revision > 99 )
+            throw new Error( `port revision ${v.revision} is over 99, which the version can't hold` );
+        return v;
+    }
+    return { major: +major, minor: +minor, patch: Math.floor( +patch / 100 ), revision: +patch % 100 };
 }
 
 const upstreamOf = ( v ) => `${v.major}.${v.minor}.${v.patch}`;
-const nugetOf = ( v ) => v.revision ? `${upstreamOf( v )}.${v.revision}` : upstreamOf( v );
-const npmOf = ( v ) => `${v.major}.${v.minor}.${v.patch * 100 + v.revision}`;
+const packageOf = ( v ) => `${v.major}.${v.minor}.${v.patch * 100 + v.revision}`;
 
 function readUpstream()
 {
@@ -66,43 +72,47 @@ const readPackageJson = () => JSON.parse( fs.readFileSync( file( 'ts/package.jso
 
 function check( tag )
 {
-    const v = parse( readVersion() );
     const problems = [];
+    const version = readVersion();
+    const v = parse( version );
+    if ( version !== packageOf( v ) )
+        problems.push( `VERSION ${version} is not in package form (expected ${packageOf( v )})` );
     const upstream = readUpstream();
     if ( upstreamOf( v ) !== upstream )
-        problems.push( `VERSION ${readVersion()} ports upstream ${upstreamOf( v )}, but cpp/ is upstream ${upstream}` );
-    if ( readCsproj() !== nugetOf( v ) )
-        problems.push( `cs/yojimbo.csproj has ${readCsproj()}, expected ${nugetOf( v )}` );
-    if ( readPackageJson() !== npmOf( v ) )
-        problems.push( `ts/package.json has ${readPackageJson()}, expected ${npmOf( v )}` );
-    if ( tag !== undefined && tag.replace( /^refs\/tags\//, '' ) !== `v${nugetOf( v )}` )
-        problems.push( `tag ${tag} does not match VERSION (expected v${nugetOf( v )})` );
+        problems.push( `VERSION ${version} ports upstream ${upstreamOf( v )}, but cpp/ is upstream ${upstream}` );
+    if ( readCsproj() !== packageOf( v ) )
+        problems.push( `cs/yojimbo.csproj has ${readCsproj()}, expected ${packageOf( v )}` );
+    if ( readPackageJson() !== packageOf( v ) )
+        problems.push( `ts/package.json has ${readPackageJson()}, expected ${packageOf( v )}` );
+    if ( tag !== undefined && tag.replace( /^refs\/tags\//, '' ) !== `v${packageOf( v )}` )
+        problems.push( `tag ${tag} does not match VERSION (expected v${packageOf( v )})` );
     for ( const problem of problems )
         console.error( `error: ${problem}` );
     if ( problems.length === 0 )
-        console.log( `ok: upstream ${upstream}, nuget ${nugetOf( v )}, npm ${npmOf( v )}` );
+        console.log( `ok: ${packageOf( v )} (upstream ${upstream}, port revision ${v.revision})` );
     return problems.length === 0;
 }
 
 function set( version )
 {
     const v = parse( version );
-    fs.writeFileSync( file( 'VERSION' ), nugetOf( v ) + '\n' );
+    const packageVersion = packageOf( v );
+    fs.writeFileSync( file( 'VERSION' ), packageVersion + '\n' );
 
     const csproj = fs.readFileSync( file( 'cs/yojimbo.csproj' ), 'utf8' );
-    fs.writeFileSync( file( 'cs/yojimbo.csproj' ), csproj.replace( /<Version>[^<]+<\/Version>/, `<Version>${nugetOf( v )}</Version>` ) );
+    fs.writeFileSync( file( 'cs/yojimbo.csproj' ), csproj.replace( /<Version>[^<]+<\/Version>/, `<Version>${packageVersion}</Version>` ) );
 
     for ( const name of [ 'ts/package.json', 'ts/package-lock.json' ] )
     {
         if ( !fs.existsSync( file( name ) ) )
             continue;
         const json = JSON.parse( fs.readFileSync( file( name ), 'utf8' ) );
-        json.version = npmOf( v );
+        json.version = packageVersion;
         if ( json.packages?.[''] )
-            json.packages[''].version = npmOf( v );
+            json.packages[''].version = packageVersion;
         fs.writeFileSync( file( name ), JSON.stringify( json, null, 2 ) + '\n' );
     }
-    console.log( `set: nuget ${nugetOf( v )}, npm ${npmOf( v )}` );
+    console.log( `set: ${packageVersion} (upstream ${upstreamOf( v )}, port revision ${v.revision})` );
 }
 
 const [ command, argument ] = process.argv.slice( 2 );
@@ -113,7 +123,7 @@ else if ( command === 'check' )
 else if ( command === undefined )
 {
     const v = parse( readVersion() );
-    console.log( `upstream ${upstreamOf( v )} (cpp/ is ${readUpstream()}), nuget ${nugetOf( v )}, npm ${npmOf( v )}` );
+    console.log( `${packageOf( v )} (upstream ${upstreamOf( v )}, port revision ${v.revision}; cpp/ is upstream ${readUpstream()})` );
 }
 else
 {

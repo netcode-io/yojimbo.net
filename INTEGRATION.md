@@ -17,7 +17,7 @@ Install:
 - **C#:** `dotnet add package yojimbo`, then `using networkprotocol; using static networkprotocol.yojimbo;`. Or reference the source: `<ProjectReference Include="path/to/cs/yojimbo.csproj" />`.
 - **TypeScript:** `npm install yojimbo2`, then `import { ... } from 'yojimbo2'`. Plain `yojimbo` is a different package on npm. Subpaths: `yojimbo2/webrtc/client`, `yojimbo2/webrtc/server`, `yojimbo2/webrtc/token`, `yojimbo2/netcode`, `yojimbo2/reliable`, `yojimbo2/serialize`, `yojimbo2/sodium`. The package is ES modules with type definitions and works with Node 24+ and with browser bundlers. To work from the source instead, import `path/to/ts/source/yojimbo.ts`: Node 24 runs the `.ts` files directly.
 
-Package versions follow upstream yojimbo. NuGet `1.13.5` and npm `1.13.500` are the port of upstream 1.13.5. A fix made in the port between upstream releases adds a revision: NuGet `1.13.5.1`, npm `1.13.501`.
+Both packages share one version, which follows upstream yojimbo with the port's revision folded into the patch. `1.13.500` is the port of upstream 1.13.5, `1.13.501` is the first port-only fix on top of it, and `1.13.600` is the port of upstream 1.13.6.
 
 The examples below import from the repository sources. With the packages installed, change the import to `'yojimbo2'` (TypeScript); the C# code is the same either way.
 
