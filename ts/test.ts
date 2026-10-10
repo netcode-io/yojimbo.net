@@ -2445,6 +2445,8 @@ function GenerateGoldenScenario(): Array<[ string, string ]>
 // ---------------------------------------------------------------------------------------------
 // Client / server tests (real UDP sockets on 127.0.0.1, so they are async: every pump yields to the event loop)
 
+const PumpRealSleepSeconds = 0.001;
+
 class TimeState
 {
     time = 100.0;
@@ -2472,7 +2474,9 @@ async function PumpClientServerUpdate( state: TimeState, client: Client[], numCl
     for ( let i = 0; i < numServers; ++i )
         server[i].AdvanceTime( state.time );
 
-    await yojimbo_sleep( 0.0 );
+    // the sockets are real but the clock is simulated: give the OS a moment to deliver what was just sent, or the
+    // simulated clock outruns delivery. a zero timeout is enough on macOS and Linux, not on Windows
+    await yojimbo_sleep( PumpRealSleepSeconds );
 }
 
 function SendClientToServerMessages( client: Client, numMessagesToSend: number, channelIndex: number = ReliableChannel ): void
