@@ -6451,7 +6451,7 @@ namespace networkprotocol
             {
                 var client_config = new netcode_client_config_t();
 
-                var client = client_create("127.0.0.1:50000", client_config, 0.0);
+                var client = client_create("127.0.0.1:0", client_config, 0.0);
 
                 check(client != null);
 
@@ -6461,7 +6461,7 @@ namespace networkprotocol
             {
                 var server_config = new netcode_server_config_t();
 
-                var server = server_create("127.0.0.1:40000", server_config, 0.0);
+                var server = server_create("127.0.0.1:0", server_config, 0.0);
 
                 check(server != null);
                 check(server.config.max_connect_token_lifetime == DEFAULT_MAX_CONNECT_TOKEN_LIFETIME);
@@ -6476,7 +6476,7 @@ namespace networkprotocol
                 server_config.protocol_id = TEST_PROTOCOL_ID;
                 server_config.private_key[0] = 1;
 
-                var server = server_create("127.0.0.1:40000", server_config, 0.0);
+                var server = server_create("127.0.0.1:0", server_config, 0.0);
 
                 check(server != null);
 
