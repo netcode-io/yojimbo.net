@@ -1,0 +1,68 @@
+# Upstream watch: compares the cpp/ submodule pin with upstream yojimbo's default branch every week.
+#
+# While upstream is ahead of the pin, one open issue labelled upstream-sync holds tools/upstream_diff.mjs's
+# report (commits, per-port checklist, version changes). Each run rewrites that issue in place, comments on it
+# when upstream has moved since the last run, and closes it once the pin catches up. Never more than one issue.
+
+name: upstream
+
+on:
+  schedule:
+    - cron: '23 7 * * 1'          # Mondays, 07:23 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: upstream
+  cancel-in-progress: false
+
+jobs:
+
+  watch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+          fetch-depth: 0            # cpp/ needs its history to count and diff commits
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: report
+        id: report
+        run: node tools/upstream_diff.mjs --out "$RUNNER_TEMP/report.md"
+      - name: sync the tracking issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          BEHIND: ${{ steps.report.outputs.behind }}
+          FROM: ${{ steps.report.outputs.from }}
+          TO: ${{ steps.report.outputs.to }}
+        run: |
+          label=upstream-sync
+          report="$RUNNER_TEMP/report.md"
+          number=$(gh issue list --label "$label" --state open --limit 1 --json number --jq '.[0].number // empty')
+          if [ "$BEHIND" -gt 0 ]; then
+            title="Upstream yojimbo is $BEHIND commit(s) past the cpp/ pin"
+            if [ -z "$number" ]; then
+              gh label create "$label" --color 0e8a16 --description "Upstream yojimbo changes to port" --force
+              gh issue create --title "$title" --label "$label" --body-file "$report"
+            else
+              # the report's first line records the upstream commit it was made against
+              previous=$(gh issue view "$number" --json body --jq '.body' | sed -n '1s/^<!-- upstream-diff from=[0-9a-f]* to=\([0-9a-f]*\) -->.*/\1/p')
+              gh issue edit "$number" --title "$title" --body-file "$report"
+              if [ "$previous" != "$TO" ]; then
+                gh issue comment "$number" --body "Upstream moved to ${TO:0:7}: now $BEHIND commit(s) past the pin. The checklist above is updated."
+              fi
+            fi
+            cat "$report" >> "$GITHUB_STEP_SUMMARY"
+          elif [ -n "$number" ]; then
+            gh issue close "$number" --comment "The cpp/ pin (${FROM:0:7}) has caught up with upstream (${TO:0:7})."
+            echo "Pin caught up with upstream; closed #$number." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "The cpp/ pin is at upstream." >> "$GITHUB_STEP_SUMMARY"
+          fi
