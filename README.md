@@ -1,8 +1,10 @@
-# yojimbo.net
+# yojimbo
 
-**yojimbo.net** holds C# and TypeScript ports of [yojimbo](https://github.com/mas-bandwidth/yojimbo), a network library for client/server games with dedicated servers, along with the two libraries it is built on: [netcode](https://github.com/mas-bandwidth/netcode) and [reliable](https://github.com/mas-bandwidth/reliable).
+This repository holds C# and TypeScript ports of [yojimbo](https://github.com/mas-bandwidth/yojimbo), a network library for client/server games with dedicated servers, along with the two libraries it is built on: [netcode](https://github.com/mas-bandwidth/netcode) and [reliable](https://github.com/mas-bandwidth/reliable).
 
 The ports track upstream **yojimbo 1.13.5** (netcode 1.4.8, reliable 1.4.5). They speak the same wire protocol (`NETCODE 1.02`), so ported clients and servers interoperate with the C/C++ originals.
+
+To use the library in a game, start with [INTEGRATION.md](INTEGRATION.md). Contributors (and Claude sessions) working on the ports: see [CLAUDE.md](CLAUDE.md).
 
 ## Layout
 
@@ -10,7 +12,6 @@ The ports track upstream **yojimbo 1.13.5** (netcode 1.4.8, reliable 1.4.5). The
 cpp/      upstream yojimbo (git submodule) - the reference source every port follows
 cs/       C# port (.NET 10)
 ts/       TypeScript port (Node 24+ and browsers; WebRTC for browser clients)
-legacy/   the original 2019 C# transpile (yojimbo.cs, netcode.io.net, reliable.io.net), kept for reference
 ```
 
 Each port mirrors the upstream folder layout file for file, so an upstream change maps directly onto the file that needs it:
@@ -70,7 +71,7 @@ Allocation goes through `Allocator` exactly where upstream calls `YOJIMBO_NEW` /
 dotnet pack cs/yojimbo.csproj -c Release
 ```
 
-builds the `yojimbo.net` NuGet package (version 1.13.5, matching upstream) with Source Link symbols.
+builds the `yojimbo` NuGet package (version 1.13.5, matching upstream) with Source Link symbols.
 
 ### CI
 

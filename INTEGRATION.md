@@ -1,0 +1,335 @@
+# Integrating yojimbo
+
+How to use the C# and TypeScript ports of yojimbo in a game or service. The examples below were built and run against this repository. Run them as written and change them from there.
+
+## Pick a port
+
+| You are building | Use |
+|---|---|
+| a .NET game client or dedicated server (Unity, Godot C#, plain .NET 10) | `cs/`, the `yojimbo` NuGet package |
+| a Node game server, tools or bots | `ts/` on Node 24+ (native UDP) |
+| a browser client | `ts/` in the browser, over WebRTC through a Node server running `ts/webrtc/webrtc_server.ts` |
+
+All three implementations interoperate: C++, C# and TypeScript speak the same wire protocol (`NETCODE 1.02`), so any client can connect to any server. `interop/run.sh` checks all nine pairings. A mixed deployment works as long as both sides agree on the things listed in [What both ends must agree on](#what-both-ends-must-agree-on).
+
+Until packages are published, reference the source:
+
+- **C#:** add `<ProjectReference Include="path/to/cs/yojimbo.csproj" />`. `dotnet pack cs/yojimbo.csproj -c Release` builds the `yojimbo` package locally.
+- **TypeScript on Node:** `import { ... } from 'path/to/ts/source/yojimbo.ts'`. Node 24 runs the `.ts` sources directly.
+- **TypeScript in the browser:** run `npm run build` in `ts/` and import the ES modules from `ts/dist/`, or point your bundler at the sources.
+
+## The model
+
+- **One server, many clients** (up to `MaxClients` = 64). The server holds a slot per client (`clientIndex`).
+- **Connect tokens** authorize clients. Your backend (matchmaker, web service) and your game servers share a 32-byte **private key** and a 64-bit **protocol id**:
+  - The backend issues a token (client id, server addresses, expiry), encrypted with that key.
+  - The client passes the token to `Connect`.
+  - Tokens are single use, and they expire.
+- **Messages** are classes you define, with one `Serialize` method used for writing, reading and measuring. They travel on **channels**:
+  - **reliable-ordered:** resent until acked, delivered in order;
+  - **unreliable-unordered:** sent once, may be lost or reordered.
+
+  A message can carry a **block** (a byte array of up to `maxBlockSize`, 256 KB by default) that is split into fragments for you.
+- **You own the loop.** Each frame, call `SendPackets`, then `ReceivePackets`, then `AdvanceTime(now)`, then read and write messages. Nothing runs in the background. The library is single threaded, so use each client or server from one thread.
+- **The adapter** is your hook into the library: it creates your message factory, receives server connect/disconnect callbacks, and optionally replaces the UDP transport (custom packet I/O, which is how WebRTC is done).
+
+## C#
+
+```csharp
+using System;
+using networkprotocol;
+using static networkprotocol.yojimbo;
+
+// 1. a message: Serialize runs for write, read and measure. propagate every failure
+class ChatMessage : Message
+{
+    public int playerId;
+    public string text = "";
+
+    public override bool Serialize(BaseStream stream)
+    {
+        if (!stream.serialize_int(ref playerId, 0, 63)) return false;
+        if (!stream.serialize_string(ref text, 256)) return false;
+        return true;
+    }
+}
+
+enum GameMessageType { CHAT_MESSAGE, NUM_GAME_MESSAGE_TYPES }
+
+// 2. the factory maps type ids to classes, in the same order on every peer
+class GameMessageFactory : MESSAGE_FACTORY_START
+{
+    public GameMessageFactory(Allocator allocator) : base(allocator, (int)GameMessageType.NUM_GAME_MESSAGE_TYPES)
+    {
+        DECLARE_MESSAGE_TYPE((int)GameMessageType.CHAT_MESSAGE, typeof(ChatMessage));
+        MESSAGE_FACTORY_FINISH();
+    }
+}
+
+// 3. the adapter creates the factory and hears about server connects/disconnects
+class GameAdapter : Adapter
+{
+    public override MessageFactory CreateMessageFactory(Allocator allocator) =>
+        YOJIMBO_NEW(allocator, () => new GameMessageFactory(allocator));
+
+    public override void OnServerClientConnected(int clientIndex) { }
+    public override void OnServerClientDisconnected(int clientIndex) { }
+}
+
+static ClientServerConfig CreateConfig()
+{
+    var config = new ClientServerConfig();
+    config.protocolId = 0x1122334455667788UL;              // must match on client and server
+    config.numChannels = 2;
+    config.channel[0].type = ChannelType.CHANNEL_TYPE_RELIABLE_ORDERED;
+    config.channel[1].type = ChannelType.CHANNEL_TYPE_UNRELIABLE_UNORDERED;
+    return config;
+}
+```
+
+Server:
+
+```csharp
+InitializeYojimbo();                                        // once per process; ShutdownYojimbo() at exit
+
+var server = new Server(GetDefaultAllocator(), privateKey, new Address("0.0.0.0", 40000), CreateConfig(), new GameAdapter(), yojimbo.time());
+if (!server.Start(MaxClients)) throw new Exception("server failed to start");
+
+while (running)
+{
+    server.SendPackets();
+    server.ReceivePackets();
+    server.AdvanceTime(yojimbo.time());
+
+    for (var clientIndex = 0; clientIndex < MaxClients; ++clientIndex)
+    {
+        if (!server.IsClientConnected(clientIndex)) continue;
+        Message message;
+        while ((message = server.ReceiveMessage(clientIndex, 0)) != null)
+        {
+            // handle message (switch on message.Type)
+            server.ReleaseMessage(clientIndex, ref message);  // always release what you receive
+        }
+    }
+    sleep(1.0 / 60.0);
+}
+
+server.Stop();
+server.Dispose();
+```
+
+Client:
+
+```csharp
+var client = new Client(GetDefaultAllocator(), new Address("0.0.0.0"), CreateConfig(), new GameAdapter(), yojimbo.time());
+client.Connect(clientId, connectToken);                    // token from your backend (see Connect tokens)
+
+while (!client.IsDisconnected)
+{
+    client.SendPackets();
+    client.ReceivePackets();
+    client.AdvanceTime(yojimbo.time());
+    if (client.ConnectionFailed) break;                    // GetDisconnectReason() says why
+
+    if (client.IsConnected && client.CanSendMessage(0))
+    {
+        var message = (ChatMessage)client.CreateMessage((int)GameMessageType.CHAT_MESSAGE);
+        message.playerId = client.ClientIndex;
+        message.text = "hello";
+        client.SendMessage(0, message);                    // the library owns it now
+    }
+    sleep(1.0 / 60.0);
+}
+client.Disconnect();
+client.Dispose();
+```
+
+## TypeScript (Node)
+
+```ts
+import {
+    InitializeYojimbo, GetDefaultAllocator, yojimbo_time, yojimbo_sleep, Address, Client, Server, ClientServerConfig,
+    MaxClients, CHANNEL_TYPE_RELIABLE_ORDERED, CHANNEL_TYPE_UNRELIABLE_UNORDERED,
+    Message, Adapter, Allocator, MessageFactory, BaseStream, serialize_int, serialize_string,
+    YOJIMBO_MESSAGE_FACTORY, YOJIMBO_NEW,
+} from './ts/source/yojimbo.ts';
+
+// 1. a message: serialize_* take (stream, object, 'field', ...) and return false on failure. propagate it
+class ChatMessage extends Message
+{
+    playerId = 0;
+    text = '';
+
+    Serialize( stream: BaseStream ): boolean
+    {
+        if ( !serialize_int( stream, this, 'playerId', 0, 63 ) ) return false;
+        if ( !serialize_string( stream, this, 'text', 256 ) ) return false;
+        return true;
+    }
+}
+
+const CHAT_MESSAGE = 0;
+const NUM_GAME_MESSAGE_TYPES = 1;
+
+// 2. the factory maps type ids to classes, in the same order on every peer
+const GameMessageFactory = YOJIMBO_MESSAGE_FACTORY( NUM_GAME_MESSAGE_TYPES, [ [ CHAT_MESSAGE, ChatMessage ] ] );
+
+// 3. the adapter
+class GameAdapter extends Adapter
+{
+    override CreateMessageFactory( allocator: Allocator ): MessageFactory | null
+    {
+        return YOJIMBO_NEW( allocator, () => new GameMessageFactory( allocator ) );
+    }
+}
+
+function CreateConfig(): ClientServerConfig
+{
+    const config = new ClientServerConfig();
+    config.protocolId = 0x1122334455667788n;               // 64-bit values are bigint
+    config.numChannels = 2;
+    config.channel[0].type = CHANNEL_TYPE_RELIABLE_ORDERED;
+    config.channel[1].type = CHANNEL_TYPE_UNRELIABLE_UNORDERED;
+    return config;
+}
+
+InitializeYojimbo();
+
+const server = new Server( GetDefaultAllocator(), privateKey, new Address( '0.0.0.0', 40000 ), CreateConfig(), new GameAdapter(), yojimbo_time() );
+if ( !server.Start( MaxClients ) ) throw new Error( 'server failed to start' );
+
+while ( running )
+{
+    server.SendPackets();
+    server.ReceivePackets();
+    server.AdvanceTime( yojimbo_time() );
+
+    for ( let clientIndex = 0; clientIndex < MaxClients; ++clientIndex )
+    {
+        if ( !server.IsClientConnected( clientIndex ) ) continue;
+        let message;
+        while ( ( message = server.ReceiveMessage( clientIndex, 0 ) ) !== null )
+        {
+            // handle message (switch on message.GetType())
+            server.ReleaseMessage( clientIndex, message );
+        }
+    }
+    await yojimbo_sleep( 1 / 60 );                          // REQUIRED: packets only arrive while the event loop runs
+}
+```
+
+The client mirrors the C# client: `new Client( ... )`, `client.Connect( clientId, connectToken )`, then the same loop with `client.IsConnected()`, `client.CreateMessage( CHAT_MESSAGE ) as ChatMessage`, `client.SendMessage( 0, message )` and `client.ReceiveMessage( 0 )`. Always `await yojimbo_sleep(...)` between frames. A loop that never yields receives nothing.
+
+## Browser clients (WebRTC)
+
+Browsers can't send UDP, so browser clients reach the server over WebRTC data channels configured to behave like UDP (unordered, no retransmits). The channels carry the same encrypted netcode packets. A single Node server accepts WebRTC peers and native UDP clients (Node, C#, C++) at the same time.
+
+**Server (Node only, needs `node-datachannel`):**
+
+```ts
+import { WebRTCServerAdapter, ShutdownWebRTC } from './ts/webrtc/webrtc_server.ts';
+
+class GameServerAdapter extends WebRTCServerAdapter
+{
+    override CreateMessageFactory( allocator: Allocator ): MessageFactory | null
+    {
+        return YOJIMBO_NEW( allocator, () => new GameMessageFactory( allocator ) );
+    }
+}
+
+const adapter = new GameServerAdapter( { address: '203.0.113.10:40000', privateKey, protocolId: 0x1122334455667788n } );
+await adapter.open();                                       // also binds UDP on that address for native clients
+const server = new Server( GetDefaultAllocator(), privateKey, adapter.address, CreateConfig(), adapter, yojimbo_time() );
+server.Start( MaxClients );
+adapter.attachServer( server );
+await adapter.listenSignaling( 8080, { path: '/signal' } ); // or route POST /signal to adapter.handleSignal( req, res )
+// ... the usual server loop ...
+adapter.close();
+await ShutdownWebRTC();                                     // otherwise node-datachannel keeps the process alive
+```
+
+**Browser:**
+
+```ts
+import { WebRTCClientAdapter } from './ts/dist/webrtc/webrtc_client.js';
+
+class GameClientAdapter extends WebRTCClientAdapter
+{
+    override CreateMessageFactory( allocator: Allocator ): MessageFactory | null
+    {
+        return YOJIMBO_NEW( allocator, () => new GameMessageFactory( allocator ) );
+    }
+}
+
+const adapter = new GameClientAdapter( { iceServers: [ { urls: 'stun:stun.example.com:3478' } ] } );
+await adapter.connect( 'https://game.example.com/signal', connectToken );   // one POST: SDP offer + token
+const client = new Client( GetDefaultAllocator(), new Address( '0.0.0.0' ), CreateConfig(), adapter, yojimbo_time() );
+client.Connect( clientId, connectToken );                   // same token
+// ... the usual client loop, awaiting yojimbo_sleep each frame (or driven by requestAnimationFrame) ...
+```
+
+What to know:
+
+- **The token gates signaling.** The server decrypts and checks the connect token before it creates a peer connection, so unauthenticated POSTs cost almost nothing. It also caps peers per IP and globally, and limits body size and timeouts. All of these limits are `WebRTCServerAdapter` options.
+- **Deployment:**
+  - Serve `/signal` over HTTPS, and set `cors` if the page is on another origin.
+  - Give clients STUN, and TURN for networks that block UDP.
+  - A server behind NAT needs `iceServers` and open ICE ports (`rtcConfig.portRangeBegin`/`portRangeEnd`, or `enableIceUdpMux`).
+- **Reconnecting needs a fresh token.** Each WebRTC peer gets a new synthetic address, and netcode won't reuse a token from a different address.
+- **Background tabs throttle timers,** so a hidden tab's loop runs slowly. Expect timeouts if the tab stays hidden longer than `config.timeout`.
+- **Demo and docs:** see `ts/README.md` and `ts/webrtc/demo/` for a working page and server (`npm run demo:webrtc`).
+
+## Connect tokens
+
+Issue tokens on a trusted backend, never in the client. The backend needs the private key, the protocol id, the client id, and the server addresses the client may use.
+
+- **C#:**
+
+  ```csharp
+  var connectToken = new byte[ConnectTokenBytes];
+  netcode.generate_connect_token(1, new[] { "203.0.113.10:40000" }, new[] { "203.0.113.10:40000" },
+      expireSeconds, DEFAULT_TIMEOUT, clientId, protocolId, privateKey, userData /* 256 bytes */, connectToken);
+  ```
+- **TypeScript:**
+
+  ```ts
+  GenerateConnectToken( { privateKey, protocolId, clientId, serverAddresses: [ '203.0.113.10:40000' ], expireSeconds } )
+  ```
+
+  `GenerateConnectToken` comes from `ts/webrtc/webrtc_token.ts` and also works for UDP servers.
+- **C++ backends:** use `netcode_generate_connect_token`. Tokens from any implementation work on any server.
+
+Rules the server enforces:
+
+- **Expiry:** the token is rejected once it has expired.
+- **Single use:** a token can't be used from a second address.
+- **Server start:** a token issued before the server started is refused. Set `ClientServerConfig.maxConnectTokenLifetime` on the server to the lifetime your backend uses (`expireSeconds`, 30 by default) so this check works.
+
+For local development, `client.InsecureConnect(privateKey, clientId, serverAddress)` makes its own token. Never ship it: the client would need the private key.
+
+## What both ends must agree on
+
+- `protocolId` and the private key.
+- The channel layout: `numChannels` and each channel's `type`, plus `maxBlockSize` and `blockFragmentSize` when blocks are used.
+- The message types, the same ids in the same order, and every `Serialize` producing the same bits. The C#/TS/C++ serialize primitives are bit-identical, so the same sequence of `serialize_*` calls with the same ranges interoperates.
+- `maxPacketSize` and the fragment settings, if you change them from the defaults.
+
+## Pitfalls
+
+- **Message ownership:**
+  - Release every message you receive (`ReleaseMessage`).
+  - Don't touch a message after `SendMessage`.
+  - Don't send or release a message twice.
+  - Check `CanSendMessage(channel)` before creating a message on a channel. A full send queue is a channel error that disconnects the client.
+- **Serialize:** every `serialize_*` call must have its result checked, and the function must `return false` on failure. Skipping that turns malformed packets into exceptions.
+- **Time:** pass the same monotonic clock (seconds, as a double) to `AdvanceTime` every frame: `yojimbo.time()` or `yojimbo_time()`. Don't use wall-clock time.
+- **Node sockets need the event loop.** UDP and WebRTC packets arrive only while it runs. On Windows, Node reads one datagram per socket per event-loop turn, so a busy server should sleep a real frame each tick, not spin.
+- **Threads:** keep each client or server on one thread or event loop.
+- **Message sizes:** messages larger than the channel allows are rejected (`CHANNEL_ERROR_MESSAGE_TOO_LARGE`). Send large payloads as blocks, or raise `maxPacketSize`/fragment settings on both ends.
+- **Disconnect reasons:** `client.GetDisconnectReason()` and `server.GetClientDisconnectReason(clientIndex)`, with the `Get*DisconnectReasonString` helpers, tell you why a connection ended. `GetNetworkInfo` gives RTT, jitter, packet loss and bandwidth.
+
+## More
+
+- [README.md](README.md): layout, build and test commands, interop and CI.
+- [ts/README.md](ts/README.md): TypeScript conventions and WebRTC deployment details.
+- Upstream [USAGE.md](cpp/USAGE.md) and [STATE-MACHINE.md](cpp/STATE-MACHINE.md): the C++ API docs. The ports keep the same names, and they apply here.

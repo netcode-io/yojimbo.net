@@ -13,8 +13,8 @@
   <PropertyGroup>
     <!-- NuGet package. The other projects in cs/ are programs and stay unpackable (Directory.Build.props). -->
     <IsPackable>true</IsPackable>
-    <PackageId>yojimbo.net</PackageId>
-    <Title>yojimbo.net</Title>
+    <PackageId>yojimbo</PackageId>
+    <Title>yojimbo</Title>
     <Authors>Glenn Fiedler;Sky Morey</Authors>
     <Description>C# port of yojimbo, a network library for client/server games with dedicated servers, with netcode and reliable built in. Speaks the netcode 1.02 wire protocol and interoperates with the C/C++ originals.</Description>
     <PackageTags>yojimbo;netcode;reliable;networking;udp;game;multiplayer</PackageTags>
