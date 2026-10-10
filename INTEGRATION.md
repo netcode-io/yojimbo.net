@@ -8,7 +8,7 @@ How to use the C# and TypeScript ports of yojimbo in a game or service. The exam
 |---|---|
 | a .NET game client or dedicated server (.NET 10, Godot C#, Unity and anything else that takes .NET Standard 2.1) | `cs/`, the `yojimbo` NuGet package (`net10.0` and `netstandard2.1`) |
 | a Node game server, tools or bots | `ts/` on Node 24+ (native UDP), the `yojimbo2` npm package |
-| a browser client | `ts/` (`yojimbo2`) in the browser, over WebRTC through a Node server running `ts/webrtc/webrtc_server.ts` |
+| a browser client | `yojimbo2` in the browser, over WebRTC through a Node server running `yojimbo2/webrtc/server` |
 
 All three implementations interoperate: C++, C# and TypeScript speak the same wire protocol (`NETCODE 1.02`), so any client can connect to any server. `interop/run.sh` checks all nine pairings. A mixed deployment works as long as both sides agree on the things listed in [What both ends must agree on](#what-both-ends-must-agree-on).
 
@@ -19,7 +19,7 @@ Install:
 
 Both packages share one version, which follows upstream yojimbo with the port's revision folded into the patch. `1.13.500` is the port of upstream 1.13.5, `1.13.501` is the first port-only fix on top of it, and `1.13.600` is the port of upstream 1.13.6.
 
-The examples below import from the repository sources. With the packages installed, change the import to `'yojimbo2'` (TypeScript); the C# code is the same either way.
+The examples below use the packages. To build against the repository sources instead, import from `path/to/ts/source/yojimbo.ts` and `path/to/ts/webrtc/*.ts` (TypeScript); the C# code is the same either way.
 
 ## The model
 
@@ -155,7 +155,7 @@ import {
     MaxClients, CHANNEL_TYPE_RELIABLE_ORDERED, CHANNEL_TYPE_UNRELIABLE_UNORDERED,
     Message, Adapter, Allocator, MessageFactory, BaseStream, serialize_int, serialize_string,
     YOJIMBO_MESSAGE_FACTORY, YOJIMBO_NEW,
-} from './ts/source/yojimbo.ts';
+} from 'yojimbo2';
 
 // 1. a message: serialize_* take (stream, object, 'field', ...) and return false on failure. propagate it
 class ChatMessage extends Message
@@ -227,10 +227,10 @@ The client mirrors the C# client: `new Client( ... )`, `client.Connect( clientId
 
 Browsers can't send UDP, so browser clients reach the server over WebRTC data channels configured to behave like UDP (unordered, no retransmits). The channels carry the same encrypted netcode packets. A single Node server accepts WebRTC peers and native UDP clients (Node, C#, C++) at the same time.
 
-**Server (Node only, needs `node-datachannel`):**
+**Server (Node only, needs `npm install node-datachannel`):**
 
 ```ts
-import { WebRTCServerAdapter, ShutdownWebRTC } from './ts/webrtc/webrtc_server.ts';
+import { WebRTCServerAdapter, ShutdownWebRTC } from 'yojimbo2/webrtc/server';
 
 class GameServerAdapter extends WebRTCServerAdapter
 {
@@ -254,7 +254,7 @@ await ShutdownWebRTC();                                     // otherwise node-da
 **Browser:**
 
 ```ts
-import { WebRTCClientAdapter } from './ts/dist/webrtc/webrtc_client.js';
+import { WebRTCClientAdapter } from 'yojimbo2/webrtc/client';
 
 class GameClientAdapter extends WebRTCClientAdapter
 {
@@ -299,7 +299,7 @@ Issue tokens on a trusted backend, never in the client. The backend needs the pr
   GenerateConnectToken( { privateKey, protocolId, clientId, serverAddresses: [ '203.0.113.10:40000' ], expireSeconds } )
   ```
 
-  `GenerateConnectToken` comes from `ts/webrtc/webrtc_token.ts` and also works for UDP servers.
+  `GenerateConnectToken` comes from `yojimbo2/webrtc/token` and also works for UDP servers.
 - **C++ backends:** use `netcode_generate_connect_token`. Tokens from any implementation work on any server.
 
 Rules the server enforces:
