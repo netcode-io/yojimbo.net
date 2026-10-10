@@ -14,7 +14,12 @@
     "client-server"
   ],
   "license": "BSD-3-Clause",
-  "author": "Glenn Fiedler (original C/C++); TypeScript port by Sky Morey",
+  "author": "Glenn Fiedler (original C/C++); ports by Sky Morey and Claude",
+  "contributors": [
+    "Glenn Fiedler",
+    "Sky Morey",
+    "Claude"
+  ],
   "homepage": "https://github.com/netcode-io/yojimbo/tree/master/ts#readme",
   "bugs": {
     "url": "https://github.com/netcode-io/yojimbo/issues"

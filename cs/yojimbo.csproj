@@ -20,7 +20,7 @@
     <IsPackable>true</IsPackable>
     <PackageId>yojimbo</PackageId>
     <Title>yojimbo</Title>
-    <Authors>Glenn Fiedler;Sky Morey</Authors>
+    <Authors>Glenn Fiedler;Sky Morey;Claude</Authors>
     <Description>C# port of yojimbo, a network library for client/server games with dedicated servers, with netcode and reliable built in. Speaks the netcode 1.02 wire protocol and interoperates with the C/C++ originals.</Description>
     <PackageTags>yojimbo;netcode;reliable;networking;udp;game;multiplayer</PackageTags>
     <PackageLicenseExpression>BSD-3-Clause</PackageLicenseExpression>
