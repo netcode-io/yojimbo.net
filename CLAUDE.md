@@ -51,6 +51,6 @@ interop/run.sh                                                # needs cc/c++, .N
 
 ## Working here
 
-- The user wants work committed and pushed straight to `master` when they ask. There are no PRs. The `ssh-agent` may have no keys loaded; pushing over HTTPS with `gh` credentials works: `git -c credential.helper='!gh auth git-credential' push https://github.com/netcode-io/yojimbo.net.git master`.
+- The user wants work committed and pushed straight to `master` when they ask. There are no PRs. The `ssh-agent` may have no keys loaded; pushing over HTTPS with `gh` credentials works: `git -c credential.helper='!gh auth git-credential' push https://github.com/netcode-io/yojimbo.git master`.
 - Prefer self-owned code to dependencies. The ChaCha20/Poly1305 port is ours on purpose.
 - Don't add abstraction layers for two fixed implementations. WebRTC is exactly native browser APIs plus `node-datachannel`.

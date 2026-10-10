@@ -20,8 +20,8 @@
     <PackageTags>yojimbo;netcode;reliable;networking;udp;game;multiplayer</PackageTags>
     <PackageLicenseExpression>BSD-3-Clause</PackageLicenseExpression>
     <PackageReadmeFile>README.md</PackageReadmeFile>
-    <PackageProjectUrl>https://github.com/netcode-io/yojimbo.net</PackageProjectUrl>
-    <RepositoryUrl>https://github.com/netcode-io/yojimbo.net</RepositoryUrl>
+    <PackageProjectUrl>https://github.com/netcode-io/yojimbo</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/netcode-io/yojimbo</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
     <!-- Source Link (built into the .NET SDK): map the pdb to the commit on GitHub, ship symbols as a .snupkg -->
     <PublishRepositoryUrl>true</PublishRepositoryUrl>
