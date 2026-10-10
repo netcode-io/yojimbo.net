@@ -3174,6 +3174,35 @@ async function test_client_server_start_stop_restart(): Promise<void>
                 break;
         }
 
+        // a timing dependent failure has been seen only on windows CI: say where the messages stopped before failing
+
+        let complete = true;
+        for ( let j = 0; j < count; ++j )
+        {
+            const clientIndex = clients[j].GetClientIndex();
+            if ( fromClient[clientIndex].count !== NumMessagesSent || fromServer[j].count !== NumMessagesSent )
+                complete = false;
+        }
+        if ( !complete )
+        {
+            console.log( `    iteration ${iteration}: ${count} clients, simulated time ${state.time.toFixed( 1 )}` );
+            for ( let j = 0; j < count; ++j )
+            {
+                const clientIndex = clients[j].GetClientIndex();
+                const clientInfo = new NetworkInfo();
+                const serverInfo = new NetworkInfo();
+                clients[j].GetNetworkInfo( clientInfo );
+                if ( clientIndex >= 0 && server.IsClientConnected( clientIndex ) )
+                    server.GetNetworkInfo( clientIndex, serverInfo );
+                console.log( `    client ${j} (index ${clientIndex}): state ${clients[j].GetClientState()} reason ${clients[j].GetDisconnectReason()}` +
+                             ` server connected ${clientIndex >= 0 && server.IsClientConnected( clientIndex )}` +
+                             ` received from client ${clientIndex >= 0 ? fromClient[clientIndex].count : -1}/${NumMessagesSent}` +
+                             ` from server ${fromServer[j].count}/${NumMessagesSent}` +
+                             ` | client sent ${clientInfo.numPacketsSent} received ${clientInfo.numPacketsReceived} acked ${clientInfo.numPacketsAcked} rtt ${clientInfo.RTT.toFixed( 0 )} loss ${clientInfo.packetLoss.toFixed( 0 )}` +
+                             ` | server sent ${serverInfo.numPacketsSent} received ${serverInfo.numPacketsReceived} acked ${serverInfo.numPacketsAcked} rtt ${serverInfo.RTT.toFixed( 0 )}` );
+            }
+        }
+
         for ( let clientIndex = 0; clientIndex < count; ++clientIndex )
         {
             check( fromClient[clientIndex].count === NumMessagesSent );
